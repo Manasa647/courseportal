@@ -1,0 +1,453 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Campus {
+  id            Int       @id @default(autoincrement())
+  name          String
+  location      String
+  studentsCount Int       @default(0) @map("students_count")
+  established   String    @default("2005")
+  facilities    String    @default("")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  address       String    @default("")
+
+  students      Student[]
+  enquiries     Enquiry[]
+  programs      Program[]
+
+  @@map("campuses")
+}
+
+model Program {
+  id              Int           @id @default(autoincrement())
+  name            String
+  department      String
+  type            String        @default("UG")
+  category        String        @default("General")
+  duration        String        @default("3 Years")
+  annualFee       Float         @default(0) @map("annual_fee")
+  devFee          Float         @default(0) @map("dev_fee")
+  totalSeats      Int           @default(60) @map("total_seats")
+  icon            String        @default("🎓")
+  minPercentage   Float         @default(45) @map("min_percentage")
+  entranceExam    String        @default("None") @map("entrance_exam")
+  eligibilityText String        @default("12th Pass") @map("eligibility_text")
+  subjects        String        @default("")
+  campusIds       String        @default("") @map("campus_ids")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  
+  description     String?
+  courses         Course[]
+  enquiries       Enquiry[]
+  applications    Application[]
+  campuses        Campus[]
+
+  @@map("programs")
+}
+
+model Course {
+  id                Int                @id @default(autoincrement())
+  name              String             @default("")
+  programId         Int                @map("program_id")
+  program           Program            @relation(fields: [programId], references: [id], onDelete: Cascade)
+  credits           Int
+  semester          Int                @default(1)
+  createdAt         DateTime           @default(now()) @map("created_at")
+
+  code              String             @unique @default("")
+  title             String             @default("")
+  description       String?
+  attendanceRecords AttendanceRecord[]
+  marks             Mark[]
+  results           Result[]
+
+  @@map("courses")
+}
+
+model Student {
+  id                Int                @id @default(autoincrement())
+  firstName         String             @map("first_name")
+  lastName          String             @map("last_name")
+  email             String             @unique
+  phone             String?
+  dateOfBirth       DateTime           @map("date_of_birth")
+  enrollmentDate    DateTime           @default(now()) @map("enrollment_date")
+  campusId          Int?               @map("campus_id")
+  campus            Campus?            @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  createdAt         DateTime           @default(now()) @map("created_at")
+  parents           Parent[]
+  application       Application?
+  feePayments       FeePayment[]
+  attendanceRecords AttendanceRecord[]
+  marks             Mark[]
+  results           Result[]
+
+  @@map("students")
+}
+
+model Parent {
+  id           Int      @id @default(autoincrement())
+  studentId    Int      @map("student_id")
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  firstName    String   @map("first_name")
+  lastName     String   @map("last_name")
+  relationship String
+  phone        String
+  email        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("parents")
+}
+
+model Enquiry {
+  id                Int             @id @default(autoincrement())
+  fullName          String          @default("")
+  name              String          @default("")
+  phone             String?
+  email             String
+  programId         Int?            @map("program_id")
+  program           Program?        @relation(fields: [programId], references: [id], onDelete: SetNull)
+  programName       String?         @map("program_name")
+  campusPreference  String?         @map("campus_preference")
+  tenthPercentage   Float?          @map("tenth_percentage")
+  twelfthPercentage Float?          @map("twelfth_percentage")
+  source            String          @default("Website")
+  message           String?
+  status            String          @default("new")
+  priority          String          @default("medium")
+  aiRecommendation  String?         @map("ai_recommendation")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  dateReceived      DateTime        @default(now()) @map("date_received")
+
+  campusId         Int?            @map("campus_id")
+  campus           Campus?         @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  application      Application?
+  followUps        FollowUp[]
+  statusHistories  StatusHistory[]
+
+  @@map("enquiries")
+}
+
+model Application {
+  id             Int       @id @default(autoincrement())
+  enquiryId      Int?      @unique @map("enquiry_id")
+  enquiry        Enquiry?  @relation(fields: [enquiryId], references: [id], onDelete: SetNull)
+  studentId      Int?      @unique @map("student_id")
+  student        Student?  @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  programId      Int?      @map("program_id")
+  program        Program?  @relation(fields: [programId], references: [id], onDelete: SetNull)
+  submissionDate DateTime  @default(now()) @map("submission_date")
+  status         String    @default("submitted")
+
+  @@map("applications")
+}
+
+model Document {
+  id           Int      @id @default(autoincrement())
+  entityType   String   @map("entity_type")
+  entityId     Int      @map("entity_id")
+  fileName     String   @map("file_name")
+  fileUrl      String   @map("file_url")
+  documentType String   @map("document_type")
+  uploadDate   DateTime @default(now()) @map("upload_date")
+
+  @@map("documents")
+}
+
+model FeePayment {
+  id            Int      @id @default(autoincrement())
+  studentId     Int      @map("student_id")
+  student       Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  amount        Float
+  paymentDate   DateTime @default(now()) @map("payment_date")
+  paymentMethod String   @map("payment_method")
+  status        String   @default("completed")
+  receipt       Receipt?
+
+  @@map("fee_payments")
+}
+
+model Receipt {
+  id            Int        @id @default(autoincrement())
+  paymentId     Int        @unique @map("payment_id")
+  payment       FeePayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  receiptNumber String     @unique @map("receipt_number")
+  issueDate     DateTime   @default(now()) @map("issue_date")
+  pdfUrl        String?    @map("pdf_url")
+
+  @@map("receipts")
+}
+
+model AttendanceRecord {
+  id        Int      @id @default(autoincrement())
+  studentId Int      @map("student_id")
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  courseId  Int      @map("course_id")
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  date      DateTime @default(now())
+  status    String
+
+  @@unique([studentId, courseId, date])
+  @@map("attendance_records")
+}
+
+model Mark {
+  id             Int      @id @default(autoincrement())
+  studentId      Int      @map("student_id")
+  student        Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  courseId       Int      @map("course_id")
+  course         Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  assessmentName String   @map("assessment_name")
+  score          Float
+  maxScore       Float    @map("max_score")
+  weight         Float
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("marks")
+}
+
+model Result {
+  id        Int      @id @default(autoincrement())
+  studentId Int      @map("student_id")
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  courseId  Int      @map("course_id")
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  grade     String
+  gpa       Float
+  status    String
+  remarks   String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([studentId, courseId])
+  @@map("results")
+}
+
+model FollowUp {
+  id        Int      @id @default(autoincrement())
+  enquiryId Int      @map("enquiry_id")
+  enquiry   Enquiry  @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
+  note      String   @default("")
+  type      String   @default("task")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // For compatibility:
+  taskName  String   @default("Scheduled Follow-up") @map("task_name")
+  dueDate   DateTime @default(now()) @map("due_date")
+  status    String   @default("pending")
+  notes     String?
+
+  @@map("follow_ups")
+}
+
+model StatusHistory {
+  id         Int      @id @default(autoincrement())
+  enquiryId  Int      @map("enquiry_id")
+  enquiry    Enquiry  @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
+  fromStatus String   @map("from_status")
+  toStatus   String   @map("to_status")
+  note       String?
+  changedAt  DateTime @default(now()) @map("changed_at")
+
+  @@map("status_histories")
+}
+
+model PlacementDrive {
+  id               Int      @id @default(autoincrement())
+  title            String
+  eligiblePrograms String   @map("eligible_programs")
+  driveDate        DateTime @default(now()) @map("drive_date")
+  company          String
+  location         String
+
+  @@map("placement_drives")
+}
+
+model Circular {
+  id             Int      @id @default(autoincrement())
+  title          String
+  content        String
+  targetAudience String   @map("target_audience")
+  datePosted     DateTime @default(now()) @map("date_posted")
+
+  @@map("circulars")
+}
+
+model HostelRoom {
+  id            Int      @id @default(autoincrement())
+  roomNumber    String   @map("room_number")
+  buildingName  String   @map("building_name")
+  capacity      Int
+  occupiedCount Int      @default(0) @map("occupied_count")
+  annualRent    Float    @default(0) @map("annual_rent")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("hostel_rooms")
+}
+
+model MessUsage {
+  id        Int      @id @default(autoincrement())
+  studentId Int      @map("student_id")
+  date      DateTime @default(now())
+  mealType  String   @map("meal_type")
+  present   Boolean  @default(true)
+
+  @@map("mess_usages")
+}
+
+model LibraryBook {
+  id              Int      @id @default(autoincrement())
+  title           String
+  author          String
+  isbn            String   @default("")
+  totalCopies     Int      @default(1) @map("total_copies")
+  availableCopies Int      @default(1) @map("available_copies")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("library_books")
+}
+
+model TransportRoute {
+  id            Int      @id @default(autoincrement())
+  routeName     String   @map("route_name")
+  vehicleNumber String   @map("vehicle_number")
+  driverName    String   @map("driver_name")
+  driverPhone   String?  @map("driver_phone")
+  capacity      Int      @default(40)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("transport_routes")
+}
+
+model FacultyPeriod {
+  id          Int      @id @default(autoincrement())
+  facultyName String   @map("faculty_name")
+  subjectName String   @map("subject_name")
+  dayOfWeek   String   @map("day_of_week")
+  startTime   String   @map("start_time")
+  endTime     String   @map("end_time")
+  roomNumber  String   @map("room_number")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("faculty_periods")
+}
+
+model Event {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  date        DateTime @default(now())
+  location    String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("events")
+}
+
+model Internship {
+  id          Int      @id @default(autoincrement())
+  companyName String   @map("company_name")
+  role        String
+  stipend     Float    @default(0)
+  duration    String   @default("3 Months")
+  eligibility String   @default("All Streams")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("internships")
+}
+
+model AlumniRecord {
+  id             Int      @id @default(autoincrement())
+  fullName       String   @map("full_name")
+  graduationYear Int      @map("graduation_year")
+  currentCompany String?  @map("current_company")
+  currentRole    String?  @map("current_role")
+  email          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("alumni_records")
+}
+
+model Grievance {
+  id            Int      @id @default(autoincrement())
+  studentId     Int      @map("student_id")
+  category      String
+  description   String
+  status        String   @default("open")
+  dateSubmitted DateTime @default(now()) @map("date_submitted")
+
+  @@map("grievances")
+}
+
+model LabAsset {
+  id           Int      @id @default(autoincrement())
+  assetName    String   @map("asset_name")
+  labName      String   @map("lab_name")
+  serialNumber String   @map("serial_number")
+  status       String   @default("working")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("lab_assets")
+}
+
+model CounsellingNote {
+  id             Int      @id @default(autoincrement())
+  studentId      Int      @map("student_id")
+  counsellorName String   @map("counsellor_name")
+  notes          String
+  dateCreated    DateTime @default(now()) @map("date_created")
+
+  @@map("counselling_notes")
+}
+
+model StudyPlan {
+  id          Int      @id @default(autoincrement())
+  programName String   @map("program_name")
+  weekNo      Int      @map("week_no")
+  subject     String
+  focusTopic  String   @map("focus_topic")
+  studyHours  Float    @map("study_hours")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("study_plans")
+}
+
+model PracticeTest {
+  id                 Int      @id @default(autoincrement())
+  subject            String
+  difficulty         String
+  question           String
+  options            String   @default("")
+  correctAnswerIndex Int      @map("correct_answer_index")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@map("practice_tests")
+}
+
+model ProgressReport {
+  id                   Int      @id @default(autoincrement())
+  studentId            Int      @map("student_id")
+  attendancePercentage Float    @map("attendance_percentage")
+  overallAverage       Float    @map("overall_average")
+  performanceCategory  String   @map("performance_category")
+  reportText           String   @map("report_text")
+  dateGenerated        DateTime @default(now()) @map("date_generated")
+
+  @@map("progress_reports")
+}
+
+model AcademicDoubtHistory {
+  id        Int      @id @default(autoincrement())
+  question  String
+  subject   String
+  language  String
+  answer    String
+  dateAsked DateTime @default(now()) @map("date_asked")
+
+  @@map("academic_doubt_histories")
+}
