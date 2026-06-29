@@ -59,11 +59,17 @@ app.get('/health', (req, res) => {
 // Production: Serve React static files
 if (process.env.NODE_ENV === 'production') {
   const frontendPath = path.join(__dirname, '../../frontend/dist');
-  app.use(express.static(frontendPath));
-  
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(frontendPath, 'index.html'));
-  });
+  const fs = require('fs');
+  if (fs.existsSync(frontendPath)) {
+    app.use(express.static(frontendPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(frontendPath, 'index.html'));
+    });
+  } else {
+    app.get('/', (req, res) => {
+      res.send('Course & Program Portal API is running. (Frontend static assets not built on this host)');
+    });
+  }
 } else {
   app.get('/', (req, res) => {
     res.send('Course & Program Portal API is running. Switch to production or start the React dev server.');
