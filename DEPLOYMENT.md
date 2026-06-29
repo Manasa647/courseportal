@@ -9,7 +9,7 @@ Follow these step-by-step instructions to deploy the Sri Gowthami Educational In
 3. Set the **Root Directory** to `backend`.
 4. Set the **Build Command** to:
    ```bash
-   npm install && npx prisma generate && npx prisma migrate deploy && npm run build
+   npm install && npx prisma generate && npx prisma db push --accept-data-loss && npm run build
    ```
 5. Set the **Start Command** to:
    ```bash
