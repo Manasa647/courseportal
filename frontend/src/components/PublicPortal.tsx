@@ -28,12 +28,25 @@ interface PublicPortalProps {
   programs: any[];
   selectedCampusFilter: string;
   setSelectedCampusFilter: (filter: string) => void;
-  enquiryForm: { name: string; email: string; phone: string; programId: string; campusId: string; backgroundNotes: string };
+  enquiryForm: { 
+    name: string; 
+    email: string; 
+    phone: string; 
+    programId: string; 
+    campusId: string; 
+    backgroundNotes: string;
+    sscPercent?: string;
+    hscPercent?: string;
+    heardFrom?: string;
+    message?: string;
+  };
   setEnquiryForm: (form: any) => void;
   formLoading: boolean;
   formSuccess: string | null;
+  setFormSuccess: (val: string | null) => void;
   formErrors: string[];
-  handleEnquirySubmit: (e: React.FormEvent) => Promise<void>;
+  handleEnquirySubmit: (e: React.FormEvent, overrideForm?: any) => Promise<void>;
+  onEnquirySubmitted?: () => void;
   recInterests: string;
   setRecInterests: (val: string) => void;
   recBackground: string;
@@ -760,21 +773,21 @@ export default function PublicPortal(props: PublicPortalProps) {
       e.preventDefault();
       const errors: Record<string, string> = {};
 
-      if (!enquiryFormFields.name.trim()) {
+      if (!(enquiryFormFields.name || '').trim()) {
         errors.name = 'Full Name is required';
       }
 
-      const cleanedPhone = enquiryFormFields.phone.replace(/\D/g, '');
-      if (!enquiryFormFields.phone.trim()) {
+      const cleanedPhone = (enquiryFormFields.phone || '').replace(/\D/g, '');
+      if (!(enquiryFormFields.phone || '').trim()) {
         errors.phone = 'Phone Number is required';
       } else if (cleanedPhone.length !== 10) {
         errors.phone = 'Phone Number must be exactly 10 digits';
       }
 
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!enquiryFormFields.email.trim()) {
+      if (!(enquiryFormFields.email || '').trim()) {
         errors.email = 'Email Address is required';
-      } else if (!emailRegex.test(enquiryFormFields.email)) {
+      } else if (!emailRegex.test(enquiryFormFields.email || '')) {
         errors.email = 'Please enter a valid email address';
       }
 
@@ -790,31 +803,69 @@ export default function PublicPortal(props: PublicPortalProps) {
       setLocalErrors({});
       setLocalLoading(true);
 
-      setTimeout(async () => {
-        try {
-          const matchedCampus = campuses.find(c => c.name.toLowerCase() === enquiryFormFields.campusId.toLowerCase());
-          const cId = matchedCampus ? matchedCampus.id : 1;
-          props.setEnquiryForm({
-            name: enquiryFormFields.name,
-            email: enquiryFormFields.email,
-            phone: enquiryFormFields.phone,
-            programId: enquiryFormFields.programId,
-            campusId: String(cId),
-            backgroundNotes: `10th %: ${enquiryFormFields.sscPercent || 'N/A'}, 12th %: ${enquiryFormFields.hscPercent || 'N/A'}, Heard via: ${enquiryFormFields.heardFrom || 'N/A'}. Message: ${enquiryFormFields.message || 'None'}`
-          });
+      try {
+        const matchedCampus = campuses.find((c: any) =>
+          c.name.toLowerCase().includes(enquiryFormFields.campusId.toLowerCase())
+        );
+        const campusIdNum = matchedCampus ? matchedCampus.id : null;
 
-          const syntheticEvent = {
-            preventDefault: () => {}
-          } as React.FormEvent;
-          
-          await props.handleEnquirySubmit(syntheticEvent);
-        } catch (err) {
-          console.error(err);
-        } finally {
-          setLocalLoading(false);
+        const matchedProgram = (props.programs || []).find((p: any) =>
+          p.name === enquiryFormFields.programId ||
+          String(p.id) === enquiryFormFields.programId
+        );
+        const programIdNum = matchedProgram ? matchedProgram.id : null;
+
+        const requestBody = {
+          fullName: enquiryFormFields.name.trim(),
+          name: enquiryFormFields.name.trim(),
+          phone: enquiryFormFields.phone.trim(),
+          email: enquiryFormFields.email.trim(),
+          programId: programIdNum,
+          campusId: campusIdNum,
+          campusPreference: enquiryFormFields.campusId || null,
+          tenthPercentage: enquiryFormFields.sscPercent ? Number(enquiryFormFields.sscPercent) : null,
+          twelfthPercentage: enquiryFormFields.hscPercent ? Number(enquiryFormFields.hscPercent) : null,
+          message: `10th: ${enquiryFormFields.sscPercent || 'N/A'}, 12th: ${enquiryFormFields.hscPercent || 'N/A'}, Heard via: ${enquiryFormFields.heardFrom || 'N/A'}. ${enquiryFormFields.message || ''}`.trim(),
+          source: enquiryFormFields.heardFrom || 'Website'
+        };
+
+        console.log('ENQUIRY SUBMIT — URL:', `${props.API_BASE_URL}/enquiries/create`);
+        console.log('ENQUIRY SUBMIT — Body:', JSON.stringify(requestBody));
+
+        const res = await fetch(`${props.API_BASE_URL}/enquiries/create`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+
+        const json = await res.json();
+        console.log('ENQUIRY RESPONSE —', res.status, JSON.stringify(json));
+
+        if (res.status === 201 && json.success) {
           setShowCelebration(true);
+          props.setFormSuccess(`Thank you, ${enquiryFormFields.name}! Your enquiry has been registered successfully. Our counsellor will contact you within 24 hours.`);
+          setEnquiryFormFields({
+            name: '', email: '', phone: '', programId: '',
+            campusId: '', sscPercent: '', hscPercent: '',
+            heardFrom: '', message: ''
+          });
+          if (props.onEnquirySubmitted) props.onEnquirySubmitted();
+        } else if (res.status === 400) {
+          const msgs = json.errors
+            ? (Array.isArray(json.errors)
+                ? json.errors.map((e: any) => e.message || String(e))
+                : [json.message])
+            : [json.message || 'Validation failed'];
+          setLocalErrors({ general: msgs.join('. ') });
+        } else {
+          setLocalErrors({ general: json.message || 'Something went wrong. Please try again or call 0883-2222222.' });
         }
-      }, 1500);
+      } catch (err) {
+        console.error('Enquiry network error:', err);
+        setLocalErrors({ general: 'Network error. Check your connection and try again.' });
+      } finally {
+        setLocalLoading(false);
+      }
     };
 
     return (
@@ -861,8 +912,8 @@ export default function PublicPortal(props: PublicPortalProps) {
                   onClick={() => {
                     setEnquiryFormFields({
                       name: '',
-                      phone: '',
                       email: '',
+                      phone: '',
                       programId: '',
                       campusId: '',
                       sscPercent: '',
@@ -870,6 +921,7 @@ export default function PublicPortal(props: PublicPortalProps) {
                       heardFrom: '',
                       message: ''
                     });
+                    props.setFormSuccess(null);
                     setShowCelebration(false);
                   }}
                   className="btn-primary"
@@ -883,6 +935,12 @@ export default function PublicPortal(props: PublicPortalProps) {
                 <h3 style={{ fontSize: '1.25rem', fontWeight: '800', color: '#1e2a5e', margin: '0 0 0.25rem 0', fontFamily: 'Inter, sans-serif' }}>Admission Enquiry Form</h3>
                 <p style={{ fontSize: '0.8rem', color: '#718096', margin: '0 0 1.25rem 0' }}>Fields marked with a red asterisk (<span style={{ color: '#e53e3e' }}>*</span>) are mandatory.</p>
                 
+                {localErrors.general && (
+                  <div style={{ padding: '0.75rem 1rem', backgroundColor: '#fff5f5', border: '1px solid #fed7d7', color: '#c53030', borderRadius: '6px', fontSize: '0.8rem', marginBottom: '1rem' }}>
+                    {localErrors.general}
+                  </div>
+                )}
+
                 <form onSubmit={handleLocalFormSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   
                   {/* Row 1 */}
@@ -1056,7 +1114,6 @@ export default function PublicPortal(props: PublicPortalProps) {
                       </>
                     ) : 'Submit Enquiry & Get AI Recommendation →'}
                   </button>
-
                 </form>
               </div>
             )}

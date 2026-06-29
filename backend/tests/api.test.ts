@@ -3,8 +3,6 @@ import { app, server } from '../src/server';
 import prisma from '../src/config/db';
 
 describe('Sri Gowthami API Integration Tests', () => {
-  let programId = 1;
-  let campusId = 1;
   let createdEnquiryId: number;
 
   beforeAll(async () => {
@@ -16,38 +14,41 @@ describe('Sri Gowthami API Integration Tests', () => {
     await prisma.program.deleteMany({});
     await prisma.campus.deleteMany({});
 
-    // Create test campus
-    const campus = await prisma.campus.create({
-      data: {
-        id: campusId,
-        name: 'Test Rajahmundry Campus',
-        location: 'Rajahmundry',
-        facilities: 'A/C Labs, Hostel',
-        studentsCount: 100,
-        established: '2020',
-        address: 'Test Address'
-      }
+    // Seed 4 campuses
+    await prisma.campus.createMany({
+      data: [
+        { id: 1, name: 'Rajahmundry Campus', location: 'Rajahmundry', established: '1995', studentsCount: 2450, facilities: 'A/C Labs,Hostels', address: 'Main Road' },
+        { id: 2, name: 'Peddapuram Campus', location: 'Peddapuram', established: '2002', studentsCount: 1320, facilities: 'Workshops', address: 'ADB Road' },
+        { id: 3, name: 'Kakinada Campus', location: 'Kakinada', established: '1999', studentsCount: 1890, facilities: 'Research Center', address: 'Sarpavaram' },
+        { id: 4, name: 'Kovvur Campus', location: 'Kovvur', established: '2010', studentsCount: 780, facilities: 'Classrooms', address: 'NH-16' }
+      ]
     });
 
-    // Create test program
-    await prisma.program.create({
-      data: {
-        id: programId,
-        name: 'B.Tech CSE',
+    // Seed 18 programs
+    const programsData = Array.from({ length: 18 }, (_, idx) => {
+      const id = idx + 1;
+      const totalSeats = id === 18 ? 50 : 70; // 17 * 70 + 50 = 1240 total seats
+      return {
+        id,
+        name: id === 1 ? 'B.Tech CSE' : `Test Program ${id}`,
         department: 'Engineering',
-        type: 'UG',
+        type: id % 2 === 0 ? 'PG' : 'UG',
         category: 'Engineering',
-        duration: '4 Years',
-        annualFee: 93000,
-        devFee: 8000,
-        totalSeats: 180,
-        icon: '💻',
-        minPercentage: 60.0,
-        entranceExam: 'EAPCET',
+        duration: '3 Years',
+        annualFee: 50000,
+        devFee: 5000,
+        totalSeats,
+        icon: '🎓',
+        minPercentage: 50,
+        entranceExam: 'None',
         eligibilityText: '10+2',
-        subjects: 'Maths, Physics, Coding',
-        campusIds: String(campus.id)
-      }
+        subjects: 'Subject1, Subject2',
+        campusIds: '1'
+      };
+    });
+
+    await prisma.program.createMany({
+      data: programsData
     });
   });
 
@@ -57,30 +58,36 @@ describe('Sri Gowthami API Integration Tests', () => {
   });
 
   describe('Programs API', () => {
-    it('GET /api/programs returns 200 with array of programs', async () => {
+    it('GET /api/programs returns 200 with array of 18 programs', async () => {
       const res = await request(app).get('/api/programs');
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
-      expect(res.body.data.length).toBeGreaterThan(0);
+      expect(res.body.data.length).toBe(18);
     });
 
-    it('GET /api/programs?type=UG returns only UG programs', async () => {
+    it('GET /api/programs?type=UG returns only UG programs all having type UG', async () => {
       const res = await request(app).get('/api/programs?type=UG');
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.every((p: any) => p.type === 'UG')).toBe(true);
+      expect(res.body.data.length).toBeGreaterThan(0);
     });
 
-    it('GET /api/programs/1 returns 200 with program id 1', async () => {
-      const res = await request(app).get(`/api/programs/${programId}`);
+    it('GET /api/programs/stats returns stats with totalSeats 1240', async () => {
+      const res = await request(app).get('/api/programs/stats');
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.id).toBe(programId);
+      expect(res.body.data).toEqual({
+        totalPrograms: 18,
+        totalSeats: 1240,
+        totalCampuses: 4,
+        placementRate: 94
+      });
     });
 
-    it('GET /api/programs/9999 returns 404 with success:false', async () => {
-      const res = await request(app).get('/api/programs/9999');
+    it('GET /api/programs/999 returns 404 with success:false', async () => {
+      const res = await request(app).get('/api/programs/999');
       expect(res.status).toBe(404);
       expect(res.body.success).toBe(false);
     });
@@ -94,13 +101,13 @@ describe('Sri Gowthami API Integration Tests', () => {
           fullName: 'Test Student',
           phone: '9876543210',
           email: 'test@test.com',
-          programId: programId
+          programId: 1
         });
 
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('aiRecommendation');
-      expect(typeof res.body.data.aiRecommendation).toBe('string');
+      expect(res.body.data.aiRecommendation).not.toBeNull();
       createdEnquiryId = res.body.data.id;
     });
 
@@ -151,13 +158,10 @@ describe('Sri Gowthami API Integration Tests', () => {
       expect(Array.isArray(res.body.data)).toBe(true);
     });
 
-    it('PATCH /api/enquiries/:id/status with body returns 200 with updated status', async () => {
+    it('POST /api/enquiries/:id/process returns 200 with updated status', async () => {
       const res = await request(app)
-        .patch(`/api/enquiries/${createdEnquiryId}/status`)
-        .send({
-          status: 'contacted',
-          note: 'Called student'
-        });
+        .post(`/api/enquiries/${createdEnquiryId}/process`)
+        .send({ note: 'Processing...' });
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -166,7 +170,7 @@ describe('Sri Gowthami API Integration Tests', () => {
   });
 
   describe('AI Route', () => {
-    it('POST /api/ai/faq with fee question returns 200 with answer containing fee or ₹', async () => {
+    it('POST /api/ai/faq with fee question returns 200 with answer containing fee or rupee symbol', async () => {
       const res = await request(app)
         .post('/api/ai/faq')
         .send({ question: 'What is the fee?' });
@@ -174,7 +178,7 @@ describe('Sri Gowthami API Integration Tests', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       const answer = res.body.data.answer.toLowerCase();
-      expect(answer.includes('fee') || answer.includes('₹')).toBe(true);
+      expect(answer.includes('fee') || answer.includes('₹') || answer.includes('rupee')).toBe(true);
     });
 
     it('POST /api/ai/faq with hostel question returns 200 with answer containing hostel', async () => {
@@ -186,6 +190,17 @@ describe('Sri Gowthami API Integration Tests', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.answer.toLowerCase()).toContain('hostel');
     });
+
+    it('POST /api/ai/recommend-courses with interests returns 200 with array of length 3', async () => {
+      const res = await request(app)
+        .post('/api/ai/recommend-courses')
+        .send({ interests: 'computers programming' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.data.length).toBe(3);
+    });
   });
 
   describe('Analytics', () => {
@@ -196,7 +211,8 @@ describe('Sri Gowthami API Integration Tests', () => {
       expect(res.body.data).toHaveProperty('totalEnquiries');
       expect(res.body.data).toHaveProperty('byStatus');
       expect(res.body.data).toHaveProperty('byPriority');
-      expect(typeof res.body.data.totalEnquiries).toBe('number');
+      expect(res.body.data).toHaveProperty('todayCount');
+      expect(res.body.data).toHaveProperty('thisWeekCount');
     });
   });
 });

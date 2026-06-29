@@ -147,11 +147,12 @@ programRouter.get('/', async (req: Request, res: Response) => {
     const where: any = {};
 
     if (type && typeof type === 'string' && type !== '') {
-      where.type = type;
+      where.type = type.toUpperCase();
     }
 
     if (category && typeof category === 'string' && category !== '') {
-      where.category = category;
+      // Map category to capitalized word (e.g., sciences -> Sciences)
+      where.category = category.charAt(0).toUpperCase() + category.slice(1).toLowerCase();
     }
 
     if (campusId && typeof campusId === 'string' && campusId !== '') {

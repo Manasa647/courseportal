@@ -107,7 +107,7 @@ describe('Course & Program Portal - Integration Test Pipeline', () => {
 
     it('should support filtering by status', async () => {
       const response = await request(app)
-        .get('/api/enquiries/list?status=pending');
+        .get('/api/enquiries/list?status=new');
 
       expect(response.status).toBe(200);
       expect(response.body.data.length).toBeGreaterThanOrEqual(1);

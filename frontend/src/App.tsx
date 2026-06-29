@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import React, { useState, useEffect } from 'react';
 import PublicPortal from './components/PublicPortal';
 import { 
@@ -22,14 +23,14 @@ import {
 } from 'lucide-react';
 
 // Interfaces
-interface Campus {
+export interface Campus {
   id: number;
   name: string;
   location: string;
   address: string;
 }
 
-interface Course {
+export interface Course {
   id: number;
   code: string;
   title: string;
@@ -37,7 +38,7 @@ interface Course {
   credits: number;
 }
 
-interface Program {
+export interface Program {
   id: number;
   name: string;
   description: string;
@@ -45,7 +46,7 @@ interface Program {
   courses: Course[];
 }
 
-interface Enquiry {
+export interface Enquiry {
   id: number;
   name: string;
   email: string;
@@ -61,7 +62,7 @@ interface Enquiry {
   campus?: { id: number; name: string; location: string };
 }
 
-interface FollowUp {
+export interface FollowUp {
   id: number;
   enquiryId: number;
   taskName: string;
@@ -71,10 +72,20 @@ interface FollowUp {
   createdAt: string;
 }
 
-interface EnquiryDetail extends Enquiry {
+export interface StatusHistory {
+  id: number;
+  enquiryId: number;
+  status: string;
+  notes: string | null;
+  changedAt: string;
+}
+
+export interface EnquiryDetail extends Enquiry {
   followUps: FollowUp[];
+  statusHistories?: StatusHistory[];
   application?: { id: number; studentId: number; status: string } | null;
 }
+
 const MOCK_PROGRAMS = [
   {
     id: 101,
@@ -403,20 +414,22 @@ const MOCK_PROGRAMS = [
 ];
 
 const API_BASE_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-  ? "http://localhost:5000"
-  : "https://sgei-portal-backend.onrender.com";
+  ? "http://localhost:5000/api"
+  : "https://sgei-portal-backend.onrender.com/api";
 
 export default function App() {
-  // View routing state: 'portal' | 'dashboard' | 'detail'
+  // Controller routing states
   const [currentView, setCurrentView] = useState<'portal' | 'dashboard' | 'detail'>('portal');
-  const [selectedEnquiryId, setSelectedEnquiryId] = useState<number | null>(null);
-
-  // Subpage states
   const [activeSubpage, setActiveSubpage] = useState<'home' | 'courses' | 'eligibility' | 'fees' | 'admission' | 'enquiry' | 'faq'>('home');
   const [selectedProgramDetail, setSelectedProgramDetail] = useState<any | null>(null);
   const [courseSearchQuery, setCourseSearchQuery] = useState('');
 
-  // Stats count-up state
+  // Live catalogs & stats from API
+  const [livePrograms, setLivePrograms] = useState<any[]>([]);
+  const [programsLoading, setProgramsLoading] = useState(false);
+  console.log('Programs loading status:', programsLoading);
+  const [campuses, setCampuses] = useState<any[]>([]);
+  const [selectedCampusFilter, setSelectedCampusFilter] = useState<string>('all');
   const [statsCount, setStatsCount] = useState({
     programs: 0,
     campuses: 0,
@@ -424,64 +437,269 @@ export default function App() {
     placement: 0
   });
 
-  // Metadata catalogs
-  const [campuses, setCampuses] = useState<Campus[]>([]);
-  const [programs, setPrograms] = useState<Program[]>([]);
+  // Global full-page loading & error state
+  const [metadataError, setMetadataError] = useState<string | null>(null);
+
+  // Enquiry & dashboard states
+  const [enquiries, setEnquiries] = useState<any[]>([]);
+  const [selectedEnquiry, setSelectedEnquiry] = useState<any | null>(null);
+  const [selectedEnquiryId, setSelectedEnquiryId] = useState<number | null>(null);
   
-  // Public Portal State
+  // Forms & UI states
   const [enquiryForm, setEnquiryForm] = useState({
     name: '',
     email: '',
     phone: '',
     programId: '',
     campusId: '',
-    backgroundNotes: ''
+    backgroundNotes: '',
+    sscPercent: '',
+    hscPercent: '',
+    heardFrom: '',
+    message: ''
   });
-  const [selectedCampusFilter, setSelectedCampusFilter] = useState<string>('all');
   const [formLoading, setFormLoading] = useState(false);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [formErrors, setFormErrors] = useState<string[]>([]);
 
-  // Dashboard Operations State
-  const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
-  const [dashLoading, setDashLoading] = useState(false);
-  const [filters, setFilters] = useState({
-    status: '',
-    programId: '',
-    startDate: '',
-    endDate: ''
-  });
-
-  // Detail View State
-  const [detailEnquiry, setDetailEnquiry] = useState<EnquiryDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
-
-  // --- NEW AI & WORKFLOW STATE WIDGETS ---
-  // FAQ Widget State
+  // FAQ State
   const [faqQuestion, setFaqQuestion] = useState('');
-  const [faqProgramId, setFaqProgramId] = useState('');
   const [faqAnswer, setFaqAnswer] = useState<string | null>(null);
   const [faqLoading, setFaqLoading] = useState(false);
 
-  // Recommend Program State
+  // Course recommendations state
   const [recInterests, setRecInterests] = useState('');
   const [recBackground, setRecBackground] = useState('');
-  const [recommendations, setRecommendations] = useState<{ programName: string; matchReason: string; matchScore: number }[] | null>(null);
+  const [recommendations, setRecommendations] = useState<any[] | null>(null);
   const [recLoading, setRecLoading] = useState(false);
 
+  // Filters for Operations Dashboard
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [priorityFilter, setPriorityFilter] = useState<string>('');
+  const [dashboardLoading, setDashboardLoading] = useState<boolean>(false);
 
+  // Detail View sub-processes loading states
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
-  // Student Dashboard Specifics (Risk, report, placements)
+  // Student specific details
   const [teacherNotes, setTeacherNotes] = useState('');
   const [progressReport, setProgressReport] = useState<string | null>(null);
   const [progressReportLoading, setProgressReportLoading] = useState(false);
   const [dropoutRisk, setDropoutRisk] = useState<{ riskLevel: string; reasons: string[] } | null>(null);
   const [dropoutRiskLoading, setDropoutRiskLoading] = useState(false);
-  const [placementDrives, setPlacementDrives] = useState<{ id: number; title: string; eligiblePrograms: string[]; company?: string; location?: string }[]>([]);
+  const [placementDrives, setPlacementDrives] = useState<any[]>([]);
   const [placementLoading, setPlacementLoading] = useState(false);
 
-  // --- NEW HANDLERS ---
+  // --- API FETCH FUNCTIONS ---
+
+  const fetchMetadata = async () => {
+    setMetadataError(null);
+    try {
+      const campRes = await fetch(`${API_BASE_URL}/campuses`);
+      const campJson = await campRes.json();
+      if (!campJson.success) throw new Error(campJson.message || 'Failed to fetch campuses.');
+
+      const progRes = await fetch(`${API_BASE_URL}/programs`);
+      const progJson = await progRes.json();
+      if (!progJson.success) throw new Error(progJson.message || 'Failed to fetch programs.');
+
+      const statsRes = await fetch(`${API_BASE_URL}/programs/stats`);
+      const statsJson = await statsRes.json();
+      if (!statsJson.success) throw new Error(statsJson.message || 'Failed to fetch statistics.');
+
+      setCampuses(campJson.data);
+      setLivePrograms(progJson.data);
+      setStatsCount({
+        programs: statsJson.data.totalPrograms,
+        campuses: statsJson.data.totalCampuses,
+        seats: statsJson.data.totalSeats,
+        placement: statsJson.data.placementRate
+      });
+    } catch (err: any) {
+      console.error('Error fetching metadata dropdown catalogs:', err);
+      setMetadataError(err.message || 'Failed to establish stable server connection.');
+    }
+  };
+
+  const fetchProgramsByCampus = async (campusFilter: string) => {
+    setProgramsLoading(true);
+    try {
+      const url = campusFilter === 'all'
+        ? `${API_BASE_URL}/programs`
+        : `${API_BASE_URL}/programs?campusId=${campusFilter}`;
+      const res = await fetch(url);
+      const json = await res.json();
+      if (json.success) {
+        setLivePrograms(json.data);
+      }
+    } catch (err) {
+      console.error('Error fetching programs:', err);
+    } finally {
+      setProgramsLoading(false);
+    }
+  };
+
+  const fetchEnquiries = async () => {
+    setDashboardLoading(true);
+    try {
+      const url = new URL(`${API_BASE_URL}/enquiries`);
+      if (statusFilter && statusFilter !== 'all' && statusFilter !== '') url.searchParams.set('status', statusFilter);
+      if (priorityFilter && priorityFilter !== 'all' && priorityFilter !== '') url.searchParams.set('priority', priorityFilter);
+
+      const res = await fetch(url.toString());
+      const json = await res.json();
+      if (json.success) {
+        setEnquiries(json.data);
+      }
+    } catch (err) {
+      console.error('Error loading enquiries list:', err);
+    } finally {
+      setDashboardLoading(false);
+    }
+  };
+
+  const fetchEnquiryDetail = async (id: number) => {
+    setDetailLoading(true);
+    setDetailError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/enquiries/${id}`);
+      const json = await res.json();
+      if (json.success) {
+        setSelectedEnquiry(json.data);
+      } else {
+        setDetailError(json.message || 'Record not found.');
+      }
+    } catch (err) {
+      setDetailError('Failed to fetch details due to network connection error.');
+      console.error(err);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  // --- SUBMISSIONS & ACTION ITEM HANDLERS ---
+
+  const handleEnquirySubmit = async (e: React.FormEvent, overrideForm?: any) => {
+    e.preventDefault();
+    const formToUse = overrideForm || enquiryForm;
+
+    setFormLoading(true);
+    setFormSuccess(null);
+    setFormErrors([]);
+    try {
+      let progId = formToUse.programId ? Number(formToUse.programId) : null;
+      if (progId && progId > 100) {
+        progId = progId - 100;
+      }
+      
+      let campId: number | null = null;
+      if (formToUse.campusId) {
+        const parsed = Number(formToUse.campusId);
+        if (!isNaN(parsed)) {
+          campId = parsed;
+        } else {
+          const matched = campuses.find(c => c.name.toLowerCase().includes(formToUse.campusId.toLowerCase()));
+          campId = matched ? matched.id : null;
+        }
+      }
+
+      const payload = {
+        fullName: formToUse.name,
+        name: formToUse.name,
+        phone: formToUse.phone,
+        email: formToUse.email,
+        programId: progId,
+        campusId: campId,
+        campusPreference: formToUse.campusId || null,
+        tenthPercentage: null,
+        twelfthPercentage: null,
+        message: formToUse.backgroundNotes || '',
+        backgroundNotes: formToUse.backgroundNotes || '',
+        source: 'Website'
+      };
+
+      console.log('Submitting to:', `${API_BASE_URL}/enquiries/create`);
+      console.log('Request body:', JSON.stringify(payload));
+
+      const res = await fetch(`${API_BASE_URL}/enquiries/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json();
+      
+      console.log('Response status:', res.status);
+      console.log('Response body:', JSON.stringify(json));
+
+      if (res.status === 201 && json.success) {
+        setFormSuccess(json.data.aiRecommendation || 'Enquiry submitted successfully!');
+        setEnquiryForm({
+          name: '',
+          email: '',
+          phone: '',
+          programId: '',
+          campusId: '',
+          backgroundNotes: '',
+          sscPercent: '',
+          hscPercent: '',
+          heardFrom: '',
+          message: ''
+        });
+        // Auto-refresh enquiries dashboard
+        fetchEnquiries();
+      } else if (res.status === 400) {
+        const errMsgs = Array.isArray(json.errors)
+          ? json.errors.map((err: any) => `${err.field}: ${err.message}`)
+          : [json.message || 'Validation failed.'];
+        setFormErrors(errMsgs);
+      } else {
+        setFormErrors([json.message || 'An error occurred.']);
+      }
+    } catch (err: any) {
+      setFormErrors([err.message || 'Network connection error. Please try again.']);
+    } finally {
+      setFormLoading(false);
+    }
+  };
+
+  const handleProgressStatus = async (id: number) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/enquiries/${id}/process`, {
+        method: 'POST'
+      });
+      const json = await res.json();
+      if (json.success) {
+        fetchEnquiries();
+      }
+    } catch (err) {
+      console.error('Error processing status transition:', err);
+    }
+  };
+
+  const handleApplyEnquireFromModal = (mockProg: any) => {
+    const matched = livePrograms.find(p => p.name.toLowerCase() === mockProg.name.toLowerCase());
+    
+    // Find campus ID corresponding to the mock program campus string
+    const mockCampusLower = mockProg.campus.toLowerCase();
+    const matchedCampus = campuses.find(c => c.name.toLowerCase().includes(mockCampusLower));
+
+    setEnquiryForm({
+      name: '',
+      email: '',
+      phone: '',
+      programId: matched ? String(matched.id + 100) : '',
+      campusId: matchedCampus ? String(matchedCampus.id) : '',
+      backgroundNotes: `Interested in ${mockProg.name} at ${mockProg.campus} campus.`,
+      sscPercent: '',
+      hscPercent: '',
+      heardFrom: '',
+      message: ''
+    });
+    setSelectedProgramDetail(null);
+    setActiveSubpage('enquiry');
+  };
+
   const handleFaqSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!faqQuestion.trim()) return;
@@ -491,16 +709,16 @@ export default function App() {
       const res = await fetch(`${API_BASE_URL}/ai/faq`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: faqQuestion, programId: faqProgramId || undefined })
+        body: JSON.stringify({ question: faqQuestion })
       });
       const json = await res.json();
       if (json.success) {
         setFaqAnswer(json.data.answer);
       } else {
-        setFaqAnswer('Error: ' + (json.message || 'Could not fetch answer.'));
+        setFaqAnswer(json.message || 'Failed to fetch answer.');
       }
-    } catch (err) {
-      setFaqAnswer('Network error occurred. Please try again.');
+    } catch (err: any) {
+      setFaqAnswer(err.message || 'Network error occurred.');
     } finally {
       setFaqLoading(false);
     }
@@ -515,7 +733,7 @@ export default function App() {
       const res = await fetch(`${API_BASE_URL}/ai/recommend-courses`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ interests: recInterests, priorBackground: recBackground || undefined })
+        body: JSON.stringify({ interests: recInterests, priorBackground: recBackground })
       });
       const json = await res.json();
       if (json.success) {
@@ -528,6 +746,31 @@ export default function App() {
     }
   };
 
+  const toggleFollowUpStatus = async (followUpId: number, currentStatus: string) => {
+    if (!selectedEnquiry) return;
+    const newStatus = currentStatus === 'pending' ? 'completed' : 'pending';
+
+    // Optimistic UI update
+    const updatedFollowUps = selectedEnquiry.followUps.map((f: any) => 
+      f.id === followUpId ? { ...f, status: newStatus } : f
+    );
+    setSelectedEnquiry({ ...selectedEnquiry, followUps: updatedFollowUps });
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/enquiries/followup/${followUpId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        fetchEnquiryDetail(selectedEnquiry.id);
+      }
+    } catch (err) {
+      console.error('Failed to patch follow-up status:', err);
+      fetchEnquiryDetail(selectedEnquiry.id);
+    }
+  };
 
   const fetchDropoutRisk = async (studentId: number) => {
     setDropoutRiskLoading(true);
@@ -579,9 +822,81 @@ export default function App() {
     }
   };
 
-  // Fetch student-specific support details when a student is admitted
+  // --- USE EFFECTS ---
+
+  // Metadata fetch on mount
   useEffect(() => {
-    const studentId = detailEnquiry?.application?.studentId;
+    fetchMetadata();
+  }, []);
+
+  // Filter programs based on sidebar campus filter
+  useEffect(() => {
+    fetchProgramsByCampus(selectedCampusFilter);
+  }, [selectedCampusFilter]);
+
+  // Statistics animation
+  useEffect(() => {
+    if (activeSubpage === 'home') {
+      const fetchAndAnimateStats = async () => {
+        try {
+          const res = await fetch(`${API_BASE_URL}/programs/stats`);
+          const json = await res.json();
+
+          const targetPrograms = (json.success && json.data.totalPrograms) ? json.data.totalPrograms : 18;
+          const targetCampuses = (json.success && json.data.totalCampuses) ? json.data.totalCampuses : 4;
+          const targetSeats = (json.success && json.data.totalSeats) ? json.data.totalSeats : 1240;
+          const targetPlacement = (json.success && json.data.placementRate) ? json.data.placementRate : 94;
+
+          let start = 0;
+          const steps = 30;
+          const stepTime = 1500 / steps;
+
+          const timer = setInterval(() => {
+            start += 1;
+            setStatsCount({
+              programs: Math.min(Math.floor((targetPrograms / steps) * start), targetPrograms),
+              campuses: Math.min(Math.floor((targetCampuses / steps) * start), targetCampuses),
+              seats: Math.min(Math.floor((targetSeats / steps) * start), targetSeats),
+              placement: Math.min(Math.floor((targetPlacement / steps) * start), targetPlacement)
+            });
+            if (start >= steps) {
+              clearInterval(timer);
+              setStatsCount({
+                programs: targetPrograms,
+                campuses: targetCampuses,
+                seats: targetSeats,
+                placement: targetPlacement
+              });
+            }
+          }, stepTime);
+
+          return () => clearInterval(timer);
+        } catch (err) {
+          console.error('Stats fetch error:', err);
+          setStatsCount({ programs: 18, campuses: 4, seats: 1240, placement: 94 });
+        }
+      };
+      fetchAndAnimateStats();
+    }
+  }, [activeSubpage]);
+
+  // Load dashboard list
+  useEffect(() => {
+    if (currentView === 'dashboard') {
+      fetchEnquiries();
+    }
+  }, [currentView, statusFilter, priorityFilter]);
+
+  // Load enquiry detail
+  useEffect(() => {
+    if (currentView === 'detail' && selectedEnquiryId) {
+      fetchEnquiryDetail(selectedEnquiryId);
+    }
+  }, [currentView, selectedEnquiryId]);
+
+  // Fetch student parameters if enquiry is converted to student
+  useEffect(() => {
+    const studentId = selectedEnquiry?.application?.studentId;
     if (studentId) {
       fetchDropoutRisk(studentId);
       fetchPlacementDrives(studentId);
@@ -589,253 +904,33 @@ export default function App() {
       setDropoutRisk(null);
       setPlacementDrives([]);
     }
-  }, [detailEnquiry?.application?.studentId]);
+  }, [selectedEnquiry?.application?.studentId]);
 
-  // Global Initial fetch
-  useEffect(() => {
-    fetchMetadata();
-  }, []);
-
-  const fetchMetadata = async () => {
-    try {
-      const campRes = await fetch(`${API_BASE_URL}/campuses`);
-      const campJson = await campRes.json();
-      if (campJson.success) setCampuses(campJson.data);
-    } catch (err) {
-      console.error('Error fetching metadata dropdown catalogs:', err);
-    }
-  };
-
-  const fetchPrograms = async (campusId?: string) => {
-    try {
-      const url = campusId && campusId !== 'all' 
-        ? `${API_BASE_URL}/programs?campusId=${campusId}` 
-        : `${API_BASE_URL}/programs`;
-      const res = await fetch(url);
-      const json = await res.json();
-      if (json.success) {
-        setPrograms(json.data);
-      }
-    } catch (err) {
-      console.error('Error fetching programs:', err);
-    }
-  };
-
-  useEffect(() => {
-    fetchPrograms(selectedCampusFilter);
-    setRecommendations(null);
-  }, [selectedCampusFilter]);
-
-  // Fetch Dashboard data
-  const fetchDashboardList = async () => {
-    setDashLoading(true);
-    try {
-      const queryParams = new URLSearchParams();
-      if (filters.status) queryParams.append('status', filters.status);
-      if (filters.programId) queryParams.append('programId', filters.programId);
-      if (filters.startDate) queryParams.append('startDate', filters.startDate);
-      if (filters.endDate) queryParams.append('endDate', filters.endDate);
-
-      const res = await fetch(`${API_BASE_URL}/enquiries/list?${queryParams.toString()}`);
-      const json = await res.json();
-      if (json.success) {
-        setEnquiries(json.data);
-      }
-    } catch (err) {
-      console.error('Error loading dashboard list:', err);
-    } finally {
-      setDashLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (currentView === 'dashboard') {
-      fetchDashboardList();
-    }
-  }, [currentView, filters]);
-
-  // Fetch Enquiry Detail data
-  const fetchEnquiryDetail = async (id: number) => {
-    setDetailLoading(true);
-    setDetailError(null);
-    try {
-      const res = await fetch(`${API_BASE_URL}/enquiries/detail?id=${id}`);
-      const json = await res.json();
-      if (json.success) {
-        setDetailEnquiry(json.data);
-      } else {
-        setDetailError(json.message || 'Record not found.');
-      }
-    } catch (err) {
-      setDetailError('Failed to fetch details due to network connection error.');
-      console.error(err);
-    } finally {
-      setDetailLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (currentView === 'detail' && selectedEnquiryId) {
-      fetchEnquiryDetail(selectedEnquiryId);
-    }
-  }, [currentView, selectedEnquiryId]);
-
-  // Stats count-up animation trigger
-  useEffect(() => {
-    if (activeSubpage === 'home') {
-      let start = 0;
-      const duration = 1000; // 1s
-      const steps = 25;
-      const stepTime = duration / steps;
-      
-      const timer = setInterval(() => {
-        start += 1;
-        setStatsCount({
-          programs: Math.min(Math.floor((18 / steps) * start), 18),
-          campuses: Math.min(Math.floor((4 / steps) * start), 4),
-          seats: Math.min(Math.floor((1240 / steps) * start), 1240),
-          placement: Math.min(Math.floor((94 / steps) * start), 94)
-        });
-        if (start >= steps) {
-          clearInterval(timer);
-        }
-      }, stepTime);
-      return () => clearInterval(timer);
-    }
-  }, [activeSubpage]);
-
-  // Handler to bridge mock catalog selection to DB enquiry fields
-  const handleApplyEnquireFromModal = (mockProg: any) => {
-    let dbProgId = '';
-    const progNameLower = mockProg.name.toLowerCase();
-    
-    if (progNameLower.includes('computer') || progNameLower.includes('mca') || progNameLower.includes('bca') || progNameLower.includes('software')) {
-      const dbProg = programs.find(p => p.name.includes('Computer Science'));
-      if (dbProg) dbProgId = String(dbProg.id);
-    } else if (progNameLower.includes('business') || progNameLower.includes('bba') || progNameLower.includes('mba') || progNameLower.includes('admin')) {
-      const dbProg = programs.find(p => p.name.includes('Business Administration'));
-      if (dbProg) dbProgId = String(dbProg.id);
-    } else if (progNameLower.includes('data science') || progNameLower.includes('ai') || progNameLower.includes('analytics')) {
-      const dbProg = programs.find(p => p.name.includes('Data Science'));
-      if (dbProg) dbProgId = String(dbProg.id);
-    }
-    
-    if (!dbProgId && programs.length > 0) {
-      dbProgId = String(programs[0].id);
-    }
-
-    let dbCampusId = '';
-    const campusLower = mockProg.campus.toLowerCase();
-    
-    if (campusLower === 'rajahmundry' || campusLower === 'kovvur') {
-      const dbCamp = campuses.find(c => c.name.includes('Main') || c.location.toLowerCase().includes('boston'));
-      if (dbCamp) dbCampusId = String(dbCamp.id);
-    } else if (campusLower === 'kakinada' || campusLower === 'peddapuram') {
-      const dbCamp = campuses.find(c => c.name.includes('City') || c.location.toLowerCase().includes('new york'));
-      if (dbCamp) dbCampusId = String(dbCamp.id);
-    }
-    
-    if (!dbCampusId && campuses.length > 0) {
-      dbCampusId = String(campuses[0].id);
-    }
-
-    setEnquiryForm({
-      ...enquiryForm,
-      programId: dbProgId,
-      campusId: dbCampusId,
-      backgroundNotes: `Interested in ${mockProg.name} at ${mockProg.campus} campus. Duration: ${mockProg.duration}.`
-    });
-
-    setSelectedProgramDetail(null);
-    setActiveSubpage('enquiry');
-  };
-
-  // Form submit handler
-  const handleEnquirySubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormLoading(true);
-    setFormSuccess(null);
-    setFormErrors([]);
-
-    // Client-side validations
-    const errors: string[] = [];
-    if (!enquiryForm.name.trim()) errors.push('Please enter your full name.');
-    if (!enquiryForm.email.trim() || !/^\S+@\S+\.\S+$/.test(enquiryForm.email)) {
-      errors.push('Please enter a valid email address.');
-    }
-    if (enquiryForm.phone && enquiryForm.phone.trim().length < 5) {
-      errors.push('Phone number must be at least 5 characters long.');
-    }
-
-    if (errors.length > 0) {
-      setFormErrors(errors);
-      setFormLoading(false);
-      return;
-    }
-
-    try {
-      const res = await fetch(`${API_BASE_URL}/enquiries/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(enquiryForm)
-      });
-      const json = await res.json();
-      
-      if (res.ok && json.success) {
-        setFormSuccess(`Thank you, ${enquiryForm.name}! Your enquiry has been registered. Admissions officers have scheduled 3 follow-ups and generated your program recommendation.`);
-        setEnquiryForm({
-          name: '',
-          email: '',
-          phone: '',
-          programId: '',
-          campusId: '',
-          backgroundNotes: ''
-        });
-      } else {
-        setFormErrors(json.errors || [json.message || 'Failed to submit enquiry.']);
-      }
-    } catch (err) {
-      setFormErrors(['Failed to submit enquiry due to a network connection error. Please try again.']);
-    } finally {
-      setFormLoading(false);
-    }
-  };
-
-  // Follow-up status toggler
-  const toggleFollowUpStatus = async (followUpId: number, currentStatus: string) => {
-    if (!detailEnquiry) return;
-    const newStatus = currentStatus === 'pending' ? 'completed' : 'pending';
-
-    // Optimistic UI update
-    const updatedFollowUps = detailEnquiry.followUps.map(f => 
-      f.id === followUpId ? { ...f, status: newStatus } : f
-    );
-    setDetailEnquiry({ ...detailEnquiry, followUps: updatedFollowUps });
-
-    try {
-      const res = await fetch(`${API_BASE_URL}/enquiries/followup/${followUpId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
-      });
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        // Revert on error
-        fetchEnquiryDetail(detailEnquiry.id);
-      }
-    } catch (err) {
-      console.error('Failed to patch follow-up status:', err);
-      // Revert
-      fetchEnquiryDetail(detailEnquiry.id);
-    }
-  };
-
-const stats = {
+  // Statistics counters
+  const dashboardStats = {
     total: enquiries.length,
     pending: enquiries.filter(e => e.status === 'pending').length,
-    highPriority: enquiries.filter(e => e.priority === 'HIGH').length,
+    highPriority: enquiries.filter(e => e.priority === 'high' || e.priority === 'HIGH').length,
     converted: enquiries.filter(e => e.status === 'admitted' || e.status === 'applied').length
   };
+
+  // --- RENDERS ---
+
+  if (metadataError) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', backgroundColor: '#f7fafc', padding: '2rem', textAlign: 'center', fontFamily: 'Inter, sans-serif' }}>
+        <AlertCircle style={{ width: '4rem', height: '4rem', color: '#e53e3e', marginBottom: '1rem' }} />
+        <h2 style={{ fontSize: '1.75rem', fontWeight: '800', color: '#1a202c', marginBottom: '0.5rem' }}>Server Connection Failed</h2>
+        <p style={{ color: '#4a5568', marginBottom: '1.5rem', maxWidth: '500px' }}>{metadataError}</p>
+        <button 
+          onClick={() => fetchMetadata()} 
+          style={{ backgroundColor: '#2d5be3', color: '#fff', border: 'none', padding: '0.75rem 1.5rem', borderRadius: '6px', fontWeight: '700', fontSize: '0.9rem', cursor: 'pointer', transition: 'all 0.2s' }}
+        >
+          Retry Connection
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container" style={currentView === 'portal' ? { backgroundColor: '#f5f6fa', minHeight: '100vh', display: 'flex', flexDirection: 'column' } : undefined}>
@@ -850,15 +945,17 @@ const stats = {
           setCourseSearchQuery={setCourseSearchQuery}
           statsCount={statsCount}
           campuses={campuses}
-          programs={programs}
+          programs={livePrograms}
           selectedCampusFilter={selectedCampusFilter}
           setSelectedCampusFilter={setSelectedCampusFilter}
           enquiryForm={enquiryForm}
           setEnquiryForm={setEnquiryForm}
           formLoading={formLoading}
           formSuccess={formSuccess}
+          setFormSuccess={setFormSuccess}
           formErrors={formErrors}
           handleEnquirySubmit={handleEnquirySubmit}
+          onEnquirySubmitted={fetchEnquiries}
           recInterests={recInterests}
           setRecInterests={setRecInterests}
           recBackground={recBackground}
@@ -868,8 +965,8 @@ const stats = {
           handleRecommendSubmit={handleRecommendSubmit}
           faqQuestion={faqQuestion}
           setFaqQuestion={setFaqQuestion}
-          faqProgramId={faqProgramId}
-          setFaqProgramId={setFaqProgramId}
+          faqProgramId={""}
+          setFaqProgramId={() => {}}
           faqAnswer={faqAnswer}
           faqLoading={faqLoading}
           handleFaqSubmit={handleFaqSubmit}
@@ -881,88 +978,93 @@ const stats = {
         />
       ) : (
         <>
-          {/* Top Navbar */}
-          <header className="navbar">
-            <div className="logo-section">
-              <BookOpen className="logo-icon" />
-              <h1 className="logo-text">EduPortal Staff Dashboard</h1>
+          {/* Dashboard/Detail Navbar */}
+          <header className="navbar" style={{ backgroundColor: '#1e2a5e', position: 'sticky', top: 0, zIndex: 100, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 2rem', color: '#fff', borderBottom: '2px solid #e15b22', width: '100%', boxSizing: 'border-box' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }} onClick={() => { setCurrentView('portal'); setActiveSubpage('home'); }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#e15b22', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.2rem', color: '#fff', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' }}>
+                SG
+              </div>
+              <div>
+                <h1 style={{ fontSize: '1.05rem', fontWeight: '700', margin: 0, lineHeight: 1.2, color: '#fff', fontFamily: 'Inter, sans-serif' }}>Sri Gowthami Educational Institutions</h1>
+                <span style={{ fontSize: '0.7rem', color: '#ffd5c2', fontWeight: '500', display: 'block' }}>Operations Staff Dashboard</span>
+              </div>
             </div>
-            <nav className="nav-links">
-              <button 
-                className="nav-btn"
-                onClick={() => { setCurrentView('portal'); setActiveSubpage('home'); setFormSuccess(null); setFormErrors([]); }}
-                id="nav-link-portal"
-              >
-                Public Portal
-              </button>
-              <button 
-                className="nav-btn active"
-                onClick={() => setCurrentView('dashboard')}
-                id="nav-link-dashboard"
-              >
-                Staff Dashboard
-              </button>
-            </nav>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+              <nav style={{ display: 'flex', gap: '0.75rem' }}>
+                <button
+                  onClick={() => { setCurrentView('portal'); setActiveSubpage('home'); setFormSuccess(null); setFormErrors([]); }}
+                  style={{ background: 'transparent', border: 'none', color: '#fff', fontWeight: '500', cursor: 'pointer', fontSize: '0.85rem', padding: '0.4rem 0.6rem', borderBottom: '2px solid transparent', transition: 'all 0.2s ease', fontFamily: 'Inter, sans-serif' }}
+                >
+                  Public Portal
+                </button>
+                <button
+                  onClick={() => { setCurrentView('dashboard'); }}
+                  style={{ background: 'transparent', border: 'none', color: '#ff9f68', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem', padding: '0.4rem 0.6rem', borderBottom: '2px solid #ff9f68', transition: 'all 0.2s ease', fontFamily: 'Inter, sans-serif' }}
+                >
+                  Staff Dashboard
+                </button>
+              </nav>
+            </div>
           </header>
 
-          {/* Main Body */}
-          <main className="content-wrapper">
-            
+          <main className="content-wrapper" style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto', fontFamily: 'Inter, sans-serif' }}>
             {/* VIEW 2: OPERATIONS DASHBOARD (INTERNAL STAFF) */}
             {currentView === 'dashboard' && (
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
                   <div>
-                    <h2 style={{ fontSize: '1.75rem' }}>Operations & Academic Support</h2>
-                    <p style={{ color: 'hsl(var(--text-secondary))', fontSize: '0.9rem' }}>Manage educational records, lead statuses, staff assignments, and follow-up activities.</p>
+                    <h2 style={{ fontSize: '1.75rem', fontWeight: '800', color: '#1e2a5e', margin: 0 }}>Operations & Academic Support</h2>
+                    <p style={{ color: '#718096', fontSize: '0.9rem', margin: '0.25rem 0 0 0' }}>Manage educational records, lead statuses, staff assignments, and follow-up activities.</p>
                   </div>
-                  <button className="btn-secondary" onClick={() => fetchDashboardList()} id="refresh-dashboard-btn">
+                  <button className="btn-secondary" onClick={fetchEnquiries} id="refresh-dashboard-btn" style={{ backgroundColor: '#fff', color: '#2d5be3', border: '1px solid #2d5be3', padding: '0.5rem 1rem', borderRadius: '4px', fontWeight: '600', cursor: 'pointer' }}>
                     Refresh Records
                   </button>
                 </div>
 
                 {/* Stats Overview */}
-                <div className="stats-grid">
-                  <div className="stat-card">
-                    <div className="stat-icon-wrapper"><Layers /></div>
+                <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+                  <div className="stat-card" style={{ background: '#fff', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div className="stat-icon-wrapper" style={{ color: '#2d5be3', backgroundColor: '#ebf8ff', padding: '0.5rem', borderRadius: '8px', display: 'flex' }}><Layers /></div>
                     <div className="stat-info">
-                      <h5>Total Enquiries</h5>
-                      <p>{stats.total}</p>
+                      <h5 style={{ margin: 0, fontSize: '0.75rem', color: '#718096', textTransform: 'uppercase' }}>Total Enquiries</h5>
+                      <p style={{ margin: '0.25rem 0 0 0', fontSize: '1.5rem', fontWeight: '800', color: '#1e2a5e' }}>{dashboardStats.total}</p>
                     </div>
                   </div>
-                  <div className="stat-card" style={{ borderLeft: '3px solid hsl(var(--warning))' }}>
-                    <div className="stat-icon-wrapper" style={{ color: 'hsl(var(--warning))', backgroundColor: 'var(--warning-glow)' }}><Clock /></div>
+                  <div className="stat-card" style={{ background: '#fff', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', borderLeft: '4px solid #d69e2e', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div className="stat-icon-wrapper" style={{ color: '#d69e2e', backgroundColor: '#fefcbf', padding: '0.5rem', borderRadius: '8px', display: 'flex' }}><Clock /></div>
                     <div className="stat-info">
-                      <h5>Pending Review</h5>
-                      <p>{stats.pending}</p>
+                      <h5 style={{ margin: 0, fontSize: '0.75rem', color: '#718096', textTransform: 'uppercase' }}>Pending Review</h5>
+                      <p style={{ margin: '0.25rem 0 0 0', fontSize: '1.5rem', fontWeight: '800', color: '#1e2a5e' }}>{dashboardStats.pending}</p>
                     </div>
                   </div>
-                  <div className="stat-card" style={{ borderLeft: '3px solid hsl(var(--priority-high))' }}>
-                    <div className="stat-icon-wrapper" style={{ color: 'hsl(var(--priority-high))', backgroundColor: 'var(--priority-high-bg)' }}><AlertTriangle /></div>
+                  <div className="stat-card" style={{ background: '#fff', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', borderLeft: '4px solid #e53e3e', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div className="stat-icon-wrapper" style={{ color: '#e53e3e', backgroundColor: '#fed7d7', padding: '0.5rem', borderRadius: '8px', display: 'flex' }}><AlertTriangle /></div>
                     <div className="stat-info">
-                      <h5>High Priority</h5>
-                      <p>{stats.highPriority}</p>
+                      <h5 style={{ margin: 0, fontSize: '0.75rem', color: '#718096', textTransform: 'uppercase' }}>High Priority</h5>
+                      <p style={{ margin: '0.25rem 0 0 0', fontSize: '1.5rem', fontWeight: '800', color: '#1e2a5e' }}>{dashboardStats.highPriority}</p>
                     </div>
                   </div>
-                  <div className="stat-card" style={{ borderLeft: '3px solid hsl(var(--success))' }}>
-                    <div className="stat-icon-wrapper" style={{ color: 'hsl(var(--success))', backgroundColor: 'var(--success-glow)' }}><CheckCircle /></div>
+                  <div className="stat-card" style={{ background: '#fff', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', borderLeft: '4px solid #38a169', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div className="stat-icon-wrapper" style={{ color: '#38a169', backgroundColor: '#c6f6d5', padding: '0.5rem', borderRadius: '8px', display: 'flex' }}><CheckCircle /></div>
                     <div className="stat-info">
-                      <h5>Converted Leads</h5>
-                      <p>{stats.converted}</p>
+                      <h5 style={{ margin: 0, fontSize: '0.75rem', color: '#718096', textTransform: 'uppercase' }}>Converted Leads</h5>
+                      <p style={{ margin: '0.25rem 0 0 0', fontSize: '1.5rem', fontWeight: '800', color: '#1e2a5e' }}>{dashboardStats.converted}</p>
                     </div>
                   </div>
                 </div>
 
                 {/* Dashboard Filters */}
-                <div className="filter-bar">
-                  <div className="filter-group">
-                    <label htmlFor="filter-status">Status:</label>
+                <div className="filter-bar" style={{ display: 'flex', gap: '1rem', backgroundColor: '#fff', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+                  <div className="filter-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <label htmlFor="filter-status" style={{ fontSize: '0.75rem', fontWeight: '700', color: '#4a5568' }}>Status:</label>
                     <select 
                       id="filter-status"
-                      value={filters.status}
-                      onChange={e => setFilters({ ...filters, status: e.target.value })}
+                      value={statusFilter}
+                      onChange={e => setStatusFilter(e.target.value)}
+                      style={{ padding: '0.4rem 0.6rem', border: '1px solid #cbd5e0', borderRadius: '4px', fontSize: '0.85rem' }}
                     >
                       <option value="">All Statuses</option>
+                      <option value="new">New</option>
                       <option value="pending">Pending</option>
                       <option value="contacted">Contacted</option>
                       <option value="applied">Applied</option>
@@ -971,101 +1073,113 @@ const stats = {
                     </select>
                   </div>
 
-                  <div className="filter-group">
-                    <label htmlFor="filter-program">Target Program:</label>
+                  <div className="filter-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <label htmlFor="filter-priority" style={{ fontSize: '0.75rem', fontWeight: '700', color: '#4a5568' }}>Priority:</label>
                     <select 
-                      id="filter-program"
-                      value={filters.programId}
-                      onChange={e => setFilters({ ...filters, programId: e.target.value })}
+                      id="filter-priority"
+                      value={priorityFilter}
+                      onChange={e => setPriorityFilter(e.target.value)}
+                      style={{ padding: '0.4rem 0.6rem', border: '1px solid #cbd5e0', borderRadius: '4px', fontSize: '0.85rem' }}
                     >
-                      <option value="">All Programs</option>
-                      {programs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      <option value="">All Priorities</option>
+                      <option value="high">High</option>
+                      <option value="medium">Medium</option>
+                      <option value="low">Low</option>
                     </select>
-                  </div>
-
-                  <div className="filter-group">
-                    <label htmlFor="filter-start-date">From Date:</label>
-                    <input 
-                      type="date" 
-                      id="filter-start-date"
-                      value={filters.startDate}
-                      onChange={e => setFilters({ ...filters, startDate: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="filter-group">
-                    <label htmlFor="filter-end-date">To Date:</label>
-                    <input 
-                      type="date" 
-                      id="filter-end-date"
-                      value={filters.endDate}
-                      onChange={e => setFilters({ ...filters, endDate: e.target.value })}
-                    />
                   </div>
                 </div>
 
                 {/* Table Records */}
-                {dashLoading ? (
-                  <div className="card">
-                    <div className="skeleton-line" style={{ width: '100%' }}></div>
-                    <div className="skeleton-line" style={{ width: '90%' }}></div>
-                    <div className="skeleton-line" style={{ width: '95%' }}></div>
-                    <div className="skeleton-line" style={{ width: '80%' }}></div>
+                {dashboardLoading ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: '#fff', padding: '1.5rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ height: '20px', width: '100%', background: '#edf2f7', borderRadius: '4px' }}></div>
+                    <div style={{ height: '20px', width: '90%', background: '#edf2f7', borderRadius: '4px' }}></div>
+                    <div style={{ height: '20px', width: '95%', background: '#edf2f7', borderRadius: '4px' }}></div>
                   </div>
                 ) : enquiries.length === 0 ? (
-                  <div className="card">
-                    <div className="empty-state">
-                      <Search className="empty-icon" />
-                      <h4>No Matching Records</h4>
-                      <p>Try resetting the search filters or submit a new enquiry profile from the Admissions Hub.</p>
-                    </div>
+                  <div style={{ background: '#fff', padding: '3rem', borderRadius: '8px', border: '1px dashed #cbd5e0', textAlign: 'center' }}>
+                    <Search style={{ width: '3rem', height: '3rem', color: '#a0aec0', marginBottom: '0.5rem' }} />
+                    <h4 style={{ margin: 0, color: '#4a5568' }}>No Matching Records</h4>
+                    <p style={{ fontSize: '0.85rem', color: '#718096', margin: '0.25rem 0 0 0' }}>Try resetting the search filters or submit a new enquiry profile from the Admissions Hub.</p>
                   </div>
                 ) : (
-                  <div className="table-container">
-                    <table className="portal-table">
+                  <div className="table-container" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', overflowX: 'auto' }}>
+                    <table className="portal-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', color: '#4a5568', textAlign: 'left' }}>
                       <thead>
-                        <tr>
-                          <th>Candidate Info</th>
-                          <th>Date Received</th>
-                          <th>Priority</th>
-                          <th>Target Program</th>
-                          <th>Preferred Campus</th>
-                          <th>Status</th>
-                          <th>Actions</th>
+                        <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#1a202c', fontWeight: '700', backgroundColor: '#f7fafc' }}>
+                          <th style={{ padding: '0.75rem 1rem' }}>Candidate Info</th>
+                          <th style={{ padding: '0.75rem 1rem' }}>Date Received</th>
+                          <th style={{ padding: '0.75rem 1rem' }}>Priority</th>
+                          <th style={{ padding: '0.75rem 1rem' }}>Target Program</th>
+                          <th style={{ padding: '0.75rem 1rem' }}>Preferred Campus</th>
+                          <th style={{ padding: '0.75rem 1rem' }}>Status</th>
+                          <th style={{ padding: '0.75rem 1rem' }}>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {enquiries.map(enquiry => (
-                          <tr key={enquiry.id}>
-                            <td>
-                              <div style={{ fontWeight: '700' }}>{enquiry.name}</div>
-                              <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-secondary))' }}>{enquiry.email}</div>
-                              {enquiry.phone && <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>{enquiry.phone}</div>}
+                          <tr 
+                            key={enquiry.id} 
+                            onClick={() => {
+                              setSelectedEnquiryId(enquiry.id);
+                              setCurrentView('detail');
+                            }}
+                            className="courses-table-row" 
+                            style={{ borderBottom: '1px solid #edf2f7', cursor: 'pointer', transition: 'background-color 0.15s ease' }}
+                          >
+                            <td style={{ padding: '0.75rem 1rem' }}>
+                              <div style={{ fontWeight: '700', color: '#1e2a5e' }}>{enquiry.name}</div>
+                              <div style={{ fontSize: '0.75rem', color: '#718096' }}>{enquiry.email}</div>
+                              {enquiry.phone && <div style={{ fontSize: '0.75rem', color: '#a0aec0' }}>{enquiry.phone}</div>}
                             </td>
-                            <td>{new Date(enquiry.dateReceived).toLocaleDateString()}</td>
-                            <td>
-                              <span className={`badge badge-priority-${enquiry.priority.toLowerCase()}`}>
+                            <td style={{ padding: '0.75rem 1rem' }}>{new Date(enquiry.createdAt).toLocaleDateString()}</td>
+                            <td style={{ padding: '0.75rem 1rem' }}>
+                              <span style={{ 
+                                fontSize: '0.65rem', 
+                                fontWeight: '800', 
+                                padding: '0.2rem 0.5rem', 
+                                borderRadius: '4px', 
+                                textTransform: 'uppercase',
+                                backgroundColor: enquiry.priority.toLowerCase() === 'high' ? '#fed7d7' : enquiry.priority.toLowerCase() === 'medium' ? '#feebc8' : '#edf2f7', 
+                                color: enquiry.priority.toLowerCase() === 'high' ? '#9b2c2c' : enquiry.priority.toLowerCase() === 'medium' ? '#9c4221' : '#4a5568'
+                              }}>
                                 {enquiry.priority}
                               </span>
                             </td>
-                            <td>{enquiry.program?.name || 'General Inquiry'}</td>
-                            <td>{enquiry.campus?.name || 'Any Campus'}</td>
-                            <td>
-                              <span className={`badge badge-status-${enquiry.status.toLowerCase()}`}>
+                            <td style={{ padding: '0.75rem 1rem' }}>{enquiry.program?.name || 'General Inquiry'}</td>
+                            <td style={{ padding: '0.75rem 1rem' }}>{enquiry.campus?.name || 'Any Campus'}</td>
+                            <td style={{ padding: '0.75rem 1rem' }}>
+                              <span style={{ 
+                                fontSize: '0.75rem', 
+                                fontWeight: '700', 
+                                padding: '0.2rem 0.5rem', 
+                                borderRadius: '4px',
+                                backgroundColor: enquiry.status.toLowerCase() === 'admitted' ? '#c6f6d5' : enquiry.status.toLowerCase() === 'pending' ? '#feebc8' : '#ebf8ff',
+                                color: enquiry.status.toLowerCase() === 'admitted' ? '#22543d' : enquiry.status.toLowerCase() === 'pending' ? '#744210' : '#2b6cb0'
+                              }}>
                                 {enquiry.status}
                               </span>
                             </td>
-                            <td>
-                              <button 
-                                className="row-action-btn"
-                                onClick={() => {
-                                  setSelectedEnquiryId(enquiry.id);
-                                  setCurrentView('detail');
-                                }}
-                                id={`view-detail-btn-${enquiry.id}`}
-                              >
-                                Manage Profile
-                              </button>
+                            <td style={{ padding: '0.75rem 1rem' }} onClick={(e) => e.stopPropagation()}>
+                              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <button 
+                                  onClick={() => {
+                                    setSelectedEnquiryId(enquiry.id);
+                                    setCurrentView('detail');
+                                  }}
+                                  style={{ backgroundColor: '#2d5be3', color: '#fff', border: 'none', padding: '0.35rem 0.75rem', borderRadius: '4px', fontWeight: '600', fontSize: '0.75rem', cursor: 'pointer' }}
+                                >
+                                  Details
+                                </button>
+                                {enquiry.status !== 'closed' && (
+                                  <button 
+                                    onClick={() => handleProgressStatus(enquiry.id)}
+                                    style={{ backgroundColor: '#2f855a', color: '#fff', border: 'none', padding: '0.35rem 0.75rem', borderRadius: '4px', fontWeight: '600', fontSize: '0.75rem', cursor: 'pointer' }}
+                                  >
+                                    Progress Status
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1079,121 +1193,120 @@ const stats = {
             {/* VIEW 3: DETAILED RECORD PANEL */}
             {currentView === 'detail' && (
               <div>
-                <div className="detail-header">
+                <div className="detail-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
                   <button 
                     className="btn-secondary" 
                     onClick={() => setCurrentView('dashboard')}
                     id="back-to-dashboard-btn"
+                    style={{ backgroundColor: '#fff', color: '#4a5568', border: '1px solid #cbd5e0', padding: '0.5rem 1rem', borderRadius: '4px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
                   >
                     <ArrowLeft style={{ width: '1rem', height: '1rem' }} /> Back to Dashboard
                   </button>
                   
-                  {detailEnquiry && (
+                  {selectedEnquiry && (
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <span className={`badge badge-priority-${detailEnquiry.priority.toLowerCase()}`}>
-                        Priority: {detailEnquiry.priority}
+                      <span style={{ fontSize: '0.75rem', fontWeight: '800', backgroundColor: '#fed7d7', color: '#9b2c2c', padding: '0.35rem 0.75rem', borderRadius: '4px' }}>
+                        Priority: {selectedEnquiry.priority}
                       </span>
-                      <span className={`badge badge-status-${detailEnquiry.status.toLowerCase()}`}>
-                        Status: {detailEnquiry.status}
+                      <span style={{ fontSize: '0.75rem', fontWeight: '800', backgroundColor: '#ebf8ff', color: '#2b6cb0', padding: '0.35rem 0.75rem', borderRadius: '4px' }}>
+                        Status: {selectedEnquiry.status}
                       </span>
                     </div>
                   )}
                 </div>
 
                 {detailLoading ? (
-                  <div className="card">
-                    <div className="skeleton-line" style={{ width: '40%' }}></div>
-                    <div className="skeleton-line" style={{ width: '70%' }}></div>
-                    <div className="skeleton-line" style={{ width: '60%' }}></div>
-                    <div className="skeleton-line" style={{ width: '50%' }}></div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: '#fff', padding: '1.5rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ height: '20px', width: '30%', background: '#edf2f7', borderRadius: '4px' }}></div>
+                    <div style={{ height: '20px', width: '60%', background: '#edf2f7', borderRadius: '4px' }}></div>
                   </div>
-                ) : detailError || !detailEnquiry ? (
-                  <div className="card">
-                    <div className="empty-state alert-error">
-                      <AlertCircle className="empty-icon" />
-                      <h4>Failed to load record details</h4>
-                      <p>{detailError || 'The record details could not be found or have been deleted.'}</p>
-                    </div>
+                ) : detailError || !selectedEnquiry ? (
+                  <div style={{ background: '#fff', padding: '3rem', borderRadius: '8px', border: '1px dashed #cbd5e0', textAlign: 'center' }}>
+                    <AlertCircle style={{ width: '3rem', height: '3rem', color: '#e53e3e', marginBottom: '0.5rem' }} />
+                    <h4 style={{ margin: 0, color: '#e53e3e' }}>Failed to load record details</h4>
+                    <p style={{ fontSize: '0.85rem', color: '#718096', margin: '0.25rem 0 0 0' }}>{detailError || 'The record details could not be found.'}</p>
                   </div>
                 ) : (
-                  <div className="detail-grid">
+                  <div className="detail-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '2rem' }}>
                     
                     {/* Left Column: AI Recommendation fit & background */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
                       {/* Basic Info */}
-                      <div className="card">
-                        <h3 className="section-title"><Users style={{ width: '1.25rem', height: '1.25rem', color: 'hsl(var(--primary))' }} /> Profile Details</h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginTop: '1rem' }}>
+                      <div className="card" style={{ background: '#fff', padding: '1.5rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                        <h3 className="section-title" style={{ margin: '0 0 1rem 0', fontSize: '1.15rem', color: '#1e2a5e', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <Users style={{ width: '1.25rem', height: '1.25rem', color: '#2d5be3' }} /> Profile Details
+                        </h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
                           <div>
-                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'hsl(var(--text-secondary))', fontWeight: '600' }}>Candidate Name</div>
-                            <div style={{ fontSize: '1.1rem', fontWeight: '700' }}>{detailEnquiry.name}</div>
+                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#718096', fontWeight: '600' }}>Candidate Name</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: '700', color: '#1e2a5e' }}>{selectedEnquiry.name}</div>
                           </div>
                           <div>
-                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'hsl(var(--text-secondary))', fontWeight: '600' }}>Email Address</div>
-                            <div style={{ fontSize: '1.1rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                              <Mail style={{ width: '0.9rem', height: '0.9rem', color: 'hsl(var(--text-muted))' }} /> {detailEnquiry.email}
+                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#718096', fontWeight: '600' }}>Email Address</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#1e2a5e' }}>
+                              <Mail style={{ width: '0.9rem', height: '0.9rem', color: '#718096' }} /> {selectedEnquiry.email}
                             </div>
                           </div>
                           <div>
-                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'hsl(var(--text-secondary))', fontWeight: '600' }}>Contact Number</div>
-                            <div style={{ fontSize: '1.1rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                              <Phone style={{ width: '0.9rem', height: '0.9rem', color: 'hsl(var(--text-muted))' }} /> {detailEnquiry.phone || 'N/A'}
+                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#718096', fontWeight: '600' }}>Contact Number</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#1e2a5e' }}>
+                              <Phone style={{ width: '0.9rem', height: '0.9rem', color: '#718096' }} /> {selectedEnquiry.phone || 'N/A'}
                             </div>
                           </div>
                           <div>
-                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'hsl(var(--text-secondary))', fontWeight: '600' }}>Record Intake Date</div>
-                            <div style={{ fontSize: '1.1rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                              <Calendar style={{ width: '0.9rem', height: '0.9rem', color: 'hsl(var(--text-muted))' }} /> {new Date(detailEnquiry.dateReceived).toLocaleDateString()}
+                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#718096', fontWeight: '600' }}>Record Intake Date</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#1e2a5e' }}>
+                              <Calendar style={{ width: '0.9rem', height: '0.9rem', color: '#718096' }} /> {new Date(selectedEnquiry.createdAt).toLocaleDateString()}
                             </div>
                           </div>
                           <div>
-                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'hsl(var(--text-secondary))', fontWeight: '600' }}>Registered Program</div>
-                            <div style={{ fontSize: '1.1rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                              <BookOpen style={{ width: '0.9rem', height: '0.9rem', color: 'hsl(var(--text-muted))' }} /> {detailEnquiry.program?.name || 'General Inquiry'}
+                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#718096', fontWeight: '600' }}>Registered Program</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#1e2a5e' }}>
+                              <BookOpen style={{ width: '0.9rem', height: '0.9rem', color: '#718096' }} /> {selectedEnquiry.program?.name || 'General Inquiry'}
                             </div>
                           </div>
                           <div>
-                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'hsl(var(--text-secondary))', fontWeight: '600' }}>Target Campus</div>
-                            <div style={{ fontSize: '1.1rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                              <MapPin style={{ width: '0.9rem', height: '0.9rem', color: 'hsl(var(--text-muted))' }} /> {detailEnquiry.campus?.name || 'Unassigned'}
+                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#718096', fontWeight: '600' }}>Target Campus</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#1e2a5e' }}>
+                              <MapPin style={{ width: '0.9rem', height: '0.9rem', color: '#718096' }} /> {selectedEnquiry.campus?.name || 'Unassigned'}
                             </div>
                           </div>
                         </div>
                       </div>
 
                       {/* AI Recommendation Details */}
-                      <div className="card" style={{ border: '1px solid rgba(99, 102, 241, 0.3)' }}>
-                        <h3 className="section-title" style={{ color: 'hsl(var(--primary-hover))' }}>
-                          <Sparkles style={{ width: '1.25rem', height: '1.25rem', color: 'hsl(var(--primary))' }} /> AI Counseling Evaluation & Recommendations
+                      <div className="card" style={{ background: '#fff', padding: '1.5rem', borderRadius: '8px', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
+                        <h3 className="section-title" style={{ margin: '0 0 1rem 0', fontSize: '1.15rem', color: '#4f46e5', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <Sparkles style={{ width: '1.25rem', height: '1.25rem', color: '#4f46e5' }} /> AI Counseling Evaluation & Recommendations
                         </h3>
-                        <div className="markdown-container">
-                          {detailEnquiry.aiRecommendation ? (
+                        <div className="markdown-container" style={{ fontSize: '0.85rem', color: '#4a5568', lineHeight: '1.6' }}>
+                          {selectedEnquiry.aiRecommendation ? (
                             <div dangerouslySetInnerHTML={{ 
-                              __html: detailEnquiry.aiRecommendation
+                              __html: selectedEnquiry.aiRecommendation
                                 .replace(/### (.*)/g, '<h3>$1</h3>')
                                 .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                                 .replace(/- (.*)/g, '<li>$1</li>')
-                                .replace(/```text([\s\S]*?)```/g, '<pre>$1</pre>')
                                 .replace(/\n/g, '<br />')
                             }} />
                           ) : (
-                            <p style={{ color: 'hsl(var(--text-secondary))', fontStyle: 'italic' }}>
-                              No evaluation is available. Background notes were not supplied during checkout.
+                            <p style={{ color: '#718096', fontStyle: 'italic' }}>
+                              No evaluation is available. Background notes were not supplied during submission.
                             </p>
                           )}
                         </div>
                       </div>
 
-                      {detailEnquiry.application?.studentId && (
-                        <div className="card" style={{ border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                          <h3 className="section-title" style={{ color: 'hsl(var(--success))', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      {/* AI Report Generation if Admitted */}
+                      {selectedEnquiry.application?.studentId && (
+                        <div className="card" style={{ background: '#fff', padding: '1.5rem', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                          <h3 className="section-title" style={{ margin: '0 0 1rem 0', fontSize: '1.15rem', color: '#059669', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <FileText style={{ width: '1.25rem', height: '1.25rem' }} /> Academic Progress Report (AI Generator)
                           </h3>
-                          <p style={{ color: 'hsl(var(--text-secondary))', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                          <p style={{ color: '#718096', fontSize: '0.85rem', marginBottom: '1rem', marginTop: 0 }}>
                             Generate a parent-facing progress report summarising attendance, course grades, and custom notes.
                           </p>
-                          <div className="form-group">
-                            <label htmlFor="teacher-notes">Teacher/Counselor Guidance Notes</label>
+                          <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginBottom: '1rem' }}>
+                            <label htmlFor="teacher-notes" style={{ fontSize: '0.75rem', fontWeight: '700', color: '#4a5568' }}>Teacher/Counselor Guidance Notes</label>
                             <textarea 
                               id="teacher-notes"
                               className="form-control"
@@ -1201,21 +1314,21 @@ const stats = {
                               value={teacherNotes}
                               onChange={e => setTeacherNotes(e.target.value)}
                               rows={3}
+                              style={{ padding: '0.5rem', border: '1px solid #cbd5e0', borderRadius: '4px', fontSize: '0.85rem', width: '100%', boxSizing: 'border-box' }}
                             />
                           </div>
                           <button 
                             className="btn-primary"
-                            style={{ background: 'linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-hover)))' }}
-                            onClick={() => handleGenerateProgressReport(detailEnquiry.application!.studentId)}
+                            onClick={() => handleGenerateProgressReport(selectedEnquiry.application!.studentId)}
                             disabled={progressReportLoading}
-                            id="generate-report-btn"
+                            style={{ backgroundColor: '#10b981', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '4px', fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer' }}
                           >
                             {progressReportLoading ? 'Generating Report...' : 'Generate Progress Report'}
                           </button>
 
                           {progressReport && (
-                            <div className="markdown-container" style={{ marginTop: '1.5rem', padding: '1rem', background: 'rgba(16, 185, 129, 0.05)', borderRadius: 'var(--radius-sm)', border: '1px dashed hsl(var(--success))' }}>
-                              <h4 style={{ fontSize: '0.9rem', fontWeight: '700', marginBottom: '0.5rem', color: 'hsl(var(--success))' }}>
+                            <div className="markdown-container" style={{ marginTop: '1.5rem', padding: '1rem', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '6px', border: '1px dashed #10b981', fontSize: '0.85rem', lineHeight: '1.6' }}>
+                              <h4 style={{ fontSize: '0.9rem', fontWeight: '700', marginBottom: '0.5rem', color: '#059669', marginTop: 0 }}>
                                 Parent Report Draft:
                               </h4>
                               <div dangerouslySetInnerHTML={{ 
@@ -1231,43 +1344,48 @@ const stats = {
                       )}
                     </div>
 
-                    {/* Right Column: Scheduled Reminders & follow-ups */}
+                    {/* Right Column: Scheduled Reminders, follow-ups & timeline */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-                      <div className="card">
-                        <h3 className="section-title">
-                          <Clock style={{ width: '1.25rem', height: '1.25rem', color: 'hsl(var(--primary))' }} /> Follow-up Action Items
+                      
+                      {/* Follow-up Checklist */}
+                      <div className="card" style={{ background: '#fff', padding: '1.5rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                        <h3 className="section-title" style={{ margin: '0 0 1rem 0', fontSize: '1.15rem', color: '#1e2a5e', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <Clock style={{ width: '1.25rem', height: '1.25rem', color: '#2d5be3' }} /> Follow-up Action Items
                         </h3>
-                        <p style={{ color: 'hsl(var(--text-secondary))', fontSize: '0.8rem', marginBottom: '1.5rem' }}>
+                        <p style={{ color: '#718096', fontSize: '0.8rem', marginBottom: '1.5rem', marginTop: 0 }}>
                           Scheduled milestones generated by the workflow engine. Toggle completion status:
                         </p>
 
-                        <div>
-                          {detailEnquiry.followUps.length === 0 ? (
-                            <div className="empty-state" style={{ padding: '2rem' }}>
-                              <CheckCircle className="empty-icon" style={{ color: 'hsl(var(--success))' }} />
-                              <p style={{ fontSize: '0.85rem' }}>All follow-up tasks completed!</p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                          {selectedEnquiry.followUps.length === 0 ? (
+                            <div style={{ padding: '1rem', textAlign: 'center' }}>
+                              <CheckCircle style={{ width: '2rem', height: '2rem', color: '#10b981', marginBottom: '0.5rem' }} />
+                              <p style={{ fontSize: '0.85rem', color: '#718096', margin: 0 }}>All follow-up tasks completed!</p>
                             </div>
                           ) : (
-                            detailEnquiry.followUps.map(task => (
-                              <div key={task.id} className="checklist-item">
+                            selectedEnquiry.followUps.map((task: any) => (
+                              <div key={task.id} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
                                 <input 
                                   type="checkbox" 
-                                  className="checklist-checkbox"
                                   checked={task.status === 'completed'}
                                   onChange={() => toggleFollowUpStatus(task.id, task.status)}
+                                  style={{ width: '16px', height: '16px', cursor: 'pointer', marginTop: '2px' }}
                                 />
-                                <div className="checklist-details">
-                                  <h5 className={task.status === 'completed' ? 'completed' : ''}>
+                                <div>
+                                  <h5 style={{ margin: 0, fontSize: '0.9rem', color: '#1e2a5e', textDecoration: task.status === 'completed' ? 'line-through' : 'none' }}>
                                     {task.taskName}
                                   </h5>
-                                  {task.notes && <p>{task.notes}</p>}
-                                  <span className={`due-badge ${
-                                    task.status === 'completed' 
-                                      ? 'badge-status-admitted' 
-                                      : new Date(task.dueDate) < new Date() 
-                                        ? 'badge-priority-high' 
-                                        : 'badge-status-pending'
-                                  }`}>
+                                  {task.notes && <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.8rem', color: '#718096' }}>{task.notes}</p>}
+                                  <span style={{ 
+                                    display: 'inline-block', 
+                                    marginTop: '0.35rem', 
+                                    fontSize: '0.65rem', 
+                                    fontWeight: '700', 
+                                    padding: '0.1rem 0.4rem', 
+                                    borderRadius: '4px',
+                                    backgroundColor: task.status === 'completed' ? '#c6f6d5' : '#fed7d7',
+                                    color: task.status === 'completed' ? '#22543d' : '#9b2c2c'
+                                  }}>
                                     {task.status === 'completed' ? 'Done' : `Due: ${new Date(task.dueDate).toLocaleDateString()}`}
                                   </span>
                                 </div>
@@ -1277,19 +1395,47 @@ const stats = {
                         </div>
                       </div>
 
-                      {!detailEnquiry.application?.studentId ? (
-                        <div className="card">
-                          <h3 className="section-title"><Info style={{ width: '1.25rem', height: '1.25rem', color: 'hsl(var(--primary))' }} /> Administrative Actions</h3>
+                      {/* Status History Timeline */}
+                      <div className="card" style={{ background: '#fff', padding: '1.5rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                        <h3 className="section-title" style={{ margin: '0 0 1rem 0', fontSize: '1.15rem', color: '#1e2a5e', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <Calendar style={{ width: '1.25rem', height: '1.25rem', color: '#2d5be3' }} /> Status History Timeline
+                        </h3>
+                        {selectedEnquiry.statusHistories && selectedEnquiry.statusHistories.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+                            {selectedEnquiry.statusHistories.map((history: any, hidx: number) => (
+                              <div key={history.id || hidx} style={{ display: 'flex', gap: '0.75rem', position: 'relative' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                  <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#2d5be3', zIndex: 2 }} />
+                                  {hidx < selectedEnquiry.statusHistories!.length - 1 && (
+                                    <div style={{ width: '2px', flexGrow: 1, backgroundColor: '#e2e8f0', margin: '4px 0' }} />
+                                  )}
+                                </div>
+                                <div style={{ fontSize: '0.8rem', color: '#4a5568' }}>
+                                  <div>Status changed to <strong style={{ textTransform: 'uppercase', color: '#2d5be3' }}>{history.status}</strong></div>
+                                  {history.notes && <div style={{ fontStyle: 'italic', color: '#718096', margin: '0.15rem 0' }}>Note: {history.notes}</div>}
+                                  <div style={{ fontSize: '0.7rem', color: '#a0aec0' }}>{new Date(history.changedAt).toLocaleString()}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p style={{ fontSize: '0.8rem', color: '#718096', fontStyle: 'italic', margin: 0 }}>No status transitions recorded yet.</p>
+                        )}
+                      </div>
+
+                      {/* Simulation Actions */}
+                      {!selectedEnquiry.application?.studentId ? (
+                        <div className="card" style={{ background: '#fff', padding: '1.5rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                          <h3 className="section-title" style={{ margin: '0 0 1rem 0', fontSize: '1.15rem', color: '#1e2a5e', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Info style={{ width: '1.25rem', height: '1.25rem', color: '#2d5be3' }} /> Administrative Actions</h3>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                             <button 
                               className="btn-primary" 
-                              style={{ background: 'linear-gradient(135deg, hsl(var(--success)), hsl(142, 60%, 35%))', boxShadow: 'none' }}
                               onClick={async () => {
                                 try {
                                   const res1 = await fetch(`${API_BASE_URL}/applications/create`, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ enquiryId: detailEnquiry.id })
+                                    body: JSON.stringify({ enquiryId: selectedEnquiry.id })
                                   });
                                   const json1 = await res1.json();
                                   if (json1.success) {
@@ -1300,78 +1446,77 @@ const stats = {
                                       body: JSON.stringify({ status: 'admitted' })
                                     });
                                   }
-                                  // Refresh detail
-                                  fetchEnquiryDetail(detailEnquiry.id);
+                                  fetchEnquiryDetail(selectedEnquiry.id);
                                 } catch (e) {
                                   console.error(e);
                                 }
                               }}
                               id="btn-simulate-admission"
+                              style={{ backgroundColor: '#10b981', color: '#fff', border: 'none', padding: '0.6rem 1rem', borderRadius: '4px', fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer' }}
                             >
                               Simulate Student Admission
                             </button>
-                            
-                            <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', textAlign: 'center' }}>
-                              Simulating admissions registers a core student profile inside the `students` table.
+                            <div style={{ fontSize: '0.75rem', color: '#718096', textAlign: 'center' }}>
+                              Simulating admission registers a student profile in the database and updates status to admitted.
                             </div>
                           </div>
                         </div>
                       ) : (
                         <>
                           {/* Dropout Risk Card */}
-                          <div className="card" style={{ border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-                            <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'hsl(var(--text-primary))' }}>
-                              <ShieldAlert style={{ width: '1.25rem', height: '1.25rem', color: 'hsl(var(--priority-high))' }} /> Academic Risk Assessment
+                          <div className="card" style={{ background: '#fff', padding: '1.5rem', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                            <h3 className="section-title" style={{ margin: '0 0 1rem 0', fontSize: '1.15rem', color: '#e53e3e', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <ShieldAlert style={{ width: '1.25rem', height: '1.25rem', color: '#e53e3e' }} /> Academic Risk Assessment
                             </h3>
                             {dropoutRiskLoading ? (
-                              <div className="skeleton-line" style={{ width: '80%' }}></div>
+                              <div style={{ height: '20px', width: '80%', background: '#edf2f7', borderRadius: '4px' }}></div>
                             ) : dropoutRisk ? (
                               <div>
                                 <div style={{ 
                                   display: 'inline-block', 
                                   padding: '0.25rem 0.75rem', 
-                                  borderRadius: 'var(--radius-sm)', 
+                                  borderRadius: '4px', 
                                   fontWeight: '700', 
                                   fontSize: '0.85rem',
                                   marginBottom: '0.75rem',
                                   backgroundColor: dropoutRisk.riskLevel === 'HIGH' ? 'rgba(239, 68, 68, 0.1)' : dropoutRisk.riskLevel === 'MEDIUM' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(16, 185, 129, 0.1)',
-                                  color: dropoutRisk.riskLevel === 'HIGH' ? 'hsl(var(--priority-high))' : dropoutRisk.riskLevel === 'MEDIUM' ? 'hsl(var(--warning))' : 'hsl(var(--success))',
+                                  color: dropoutRisk.riskLevel === 'HIGH' ? '#e53e3e' : dropoutRisk.riskLevel === 'MEDIUM' ? '#d69e2e' : '#38a169',
                                   border: `1px solid ${dropoutRisk.riskLevel === 'HIGH' ? 'rgba(239, 68, 68, 0.3)' : dropoutRisk.riskLevel === 'MEDIUM' ? 'rgba(245, 158, 11, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`
                                 }}>
                                   Risk Level: {dropoutRisk.riskLevel}
                                 </div>
                                 {dropoutRisk.reasons.length > 0 ? (
-                                  <ul style={{ paddingLeft: '1.25rem', fontSize: '0.8rem', color: 'hsl(var(--text-secondary))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                  <ul style={{ paddingLeft: '1.25rem', fontSize: '0.8rem', color: '#718096', display: 'flex', flexDirection: 'column', gap: '0.35rem', margin: 0 }}>
                                     {dropoutRisk.reasons.map((r, i) => <li key={i}>{r}</li>)}
                                   </ul>
                                 ) : (
-                                  <p style={{ fontSize: '0.8rem', color: 'hsl(var(--text-secondary))' }}>Student is performing well. Attendance, grades, and payments are in safe thresholds.</p>
+                                  <p style={{ fontSize: '0.8rem', color: '#718096', margin: 0 }}>Student is performing well. Attendance, grades, and payments are in safe thresholds.</p>
                                 )}
                               </div>
                             ) : (
-                              <p style={{ fontSize: '0.8rem', color: 'hsl(var(--text-muted))' }}>Could not load risk metrics.</p>
+                              <p style={{ fontSize: '0.8rem', color: '#cbd5e0', margin: 0 }}>Could not load risk metrics.</p>
                             )}
                           </div>
 
                           {/* Placement Drives Card */}
-                          <div className="card" style={{ border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-                            <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'hsl(var(--text-primary))' }}>
-                              <Briefcase style={{ width: '1.25rem', height: '1.25rem', color: 'hsl(var(--success))' }} /> Matched Placement Drives
+                          <div className="card" style={{ background: '#fff', padding: '1.5rem', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                            <h3 className="section-title" style={{ margin: '0 0 1rem 0', fontSize: '1.15rem', color: '#38a169', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <Briefcase style={{ width: '1.25rem', height: '1.25rem', color: '#38a169' }} /> Matched Placement Drives
                             </h3>
                             {placementLoading ? (
-                              <div className="skeleton-line" style={{ width: '80%' }}></div>
+                              <div style={{ height: '20px', width: '80%', background: '#edf2f7', borderRadius: '4px' }}></div>
                             ) : placementDrives.length > 0 ? (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                                 {placementDrives.map(drive => (
-                                  <div key={drive.id} style={{ background: 'rgba(16, 185, 129, 0.05)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(16, 185, 129, 0.15)' }}>
-                                    <h5 style={{ fontSize: '0.85rem', fontWeight: '700', color: 'hsl(var(--success))', marginBottom: '0.15rem' }}>{drive.title}</h5>
-                                    <p style={{ fontSize: '0.75rem', color: 'hsl(var(--text-secondary))', marginBottom: '0.15rem' }}>Company: {drive.company || 'N/A'}</p>
-                                    <p style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>Location: {drive.location || 'N/A'}</p>
+                                  <div key={drive.id} style={{ background: 'rgba(16, 185, 129, 0.05)', padding: '0.75rem', borderRadius: '4px', border: '1px solid rgba(16, 185, 129, 0.15)' }}>
+                                    <h5 style={{ fontSize: '0.85rem', fontWeight: '700', color: '#22543d', margin: '0 0 0.15rem 0' }}>{drive.title}</h5>
+                                    <p style={{ fontSize: '0.75rem', color: '#4a5568', margin: '0 0 0.15rem 0' }}>Company: {drive.company || 'N/A'}</p>
+                                    <p style={{ fontSize: '0.75rem', color: '#718096', margin: 0 }}>Location: {drive.location || 'N/A'}</p>
                                   </div>
                                 ))}
                               </div>
                             ) : (
-                              <p style={{ fontSize: '0.8rem', color: 'hsl(var(--text-secondary))' }}>No matching placement drives found for the target program.</p>
+                              <p style={{ fontSize: '0.8rem', color: '#718096', margin: 0 }}>No matching placement drives found for the target program.</p>
                             )}
                           </div>
                         </>

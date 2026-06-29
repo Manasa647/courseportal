@@ -22,426 +22,416 @@ async function main() {
   await prisma.campus.deleteMany({});
   await prisma.placementDrive.deleteMany({});
 
-  // Seed Campuses
-  const campusRjy = await prisma.campus.create({
+  // Seed 4 Campuses
+  await prisma.campus.create({
     data: {
+      id: 1,
       name: 'Rajahmundry Campus',
       location: 'Rajahmundry',
       established: '1995',
-      facilities: 'A/C Labs, High-speed Wi-Fi, Digital Library, Seminar Halls, Sports Complex, Hostels',
       studentsCount: 2450,
+      facilities: 'A/C Labs,High-speed Wi-Fi,Digital Library,Seminar Halls,Sports Complex,Hostels',
       address: 'Main Road, Danavaipeta, Rajahmundry, AP'
     }
   });
 
-  const campusPed = await prisma.campus.create({
+  await prisma.campus.create({
     data: {
+      id: 2,
       name: 'Peddapuram Campus',
       location: 'Peddapuram',
       established: '2002',
-      facilities: 'Engineering Workshops, Chemistry Labs, Library, Placement Cell, Girls Hostel',
       studentsCount: 1320,
+      facilities: 'Engineering Workshops,Chemistry Labs,Library,Placement Cell,Girls Hostel',
       address: 'ADB Road, Peddapuram, AP'
     }
   });
 
-  const campusKak = await prisma.campus.create({
+  await prisma.campus.create({
     data: {
+      id: 3,
       name: 'Kakinada Campus',
       location: 'Kakinada',
       established: '1999',
-      facilities: 'Research Center, Computer Center, Cafeteria, Boys & Girls Hostels, Auditorium',
       studentsCount: 1890,
+      facilities: 'Research Center,Computer Center,Cafeteria,Boys & Girls Hostels,Auditorium',
       address: 'Sarpavaram Junction, Kakinada, AP'
     }
   });
 
-  const campusKov = await prisma.campus.create({
+  await prisma.campus.create({
     data: {
+      id: 4,
       name: 'Kovvur Campus',
       location: 'Kovvur',
-      established: '2005',
-      facilities: 'Spacious Classrooms, Library, Computer Lab, Playground, Bus Facility',
-      studentsCount: 840,
-      address: 'Station Road, Kovvur, AP'
+      established: '2010',
+      studentsCount: 780,
+      facilities: 'Smart Classrooms,Computer Lab,Library,Cafeteria',
+      address: 'NH-16, Kovvur, West Godavari, AP'
     }
   });
 
-  const campusMap: Record<string, any> = {
-    'Rajahmundry': campusRjy,
-    'Peddapuram': campusPed,
-    'Kakinada': campusKak,
-    'Kovvur': campusKov
-  };
-
+  // Seed 18 Programs using createMany
   const programsData = [
     {
-      id: 101,
-      name: 'B.Tech CSE',
-      type: 'UG',
+      id: 1,
+      name: 'B.Tech – Computer Science & Engineering',
       department: 'Engineering',
+      type: 'UG',
       category: 'Engineering',
       duration: '4 Years',
-      annualFee: 93000,
+      annualFee: 85000,
       devFee: 8000,
       totalSeats: 180,
       icon: '💻',
-      minPercentage: 60.0,
-      entranceExam: 'EAPCET / JEE',
-      eligibilityText: '10+2 / Intermediate with Maths & Physics',
-      subjects: 'Programming in Python,Data Structures & Algorithms,Database Management Systems,Computer Networks,Operating Systems,Web Development',
-      campus: 'Rajahmundry'
+      minPercentage: 60,
+      entranceExam: 'EAPCET/JEE',
+      eligibilityText: '10+2 with Maths & Physics minimum 60%',
+      subjects: 'Data Structures,Algorithms,OS,DBMS,Networks,AI/ML,Web Development,Cloud Computing',
+      campusIds: '1,2'
     },
     {
-      id: 102,
-      name: 'B.Tech ECE',
-      type: 'UG',
+      id: 2,
+      name: 'B.Tech – Electronics & Communication',
       department: 'Engineering',
+      type: 'UG',
       category: 'Engineering',
       duration: '4 Years',
-      annualFee: 88000,
+      annualFee: 80000,
       devFee: 8000,
       totalSeats: 120,
       icon: '📡',
-      minPercentage: 60.0,
-      entranceExam: 'EAPCET / JEE',
-      eligibilityText: '10+2 / Intermediate with Maths & Physics',
-      subjects: 'Network Theory,Electronic Devices & Circuits,Signals & Systems,Microprocessors & Microcontrollers,Analog Communications,VLSI Design',
-      campus: 'Kakinada'
+      minPercentage: 60,
+      entranceExam: 'EAPCET',
+      eligibilityText: '10+2 with Maths & Physics minimum 60%',
+      subjects: 'Circuit Theory,Signal Processing,VLSI,Embedded Systems,Communication Systems',
+      campusIds: '1,3'
     },
     {
-      id: 103,
-      name: 'B.Tech EEE',
-      type: 'UG',
+      id: 3,
+      name: 'B.Tech – Electrical Engineering',
       department: 'Engineering',
+      type: 'UG',
       category: 'Engineering',
       duration: '4 Years',
-      annualFee: 83000,
+      annualFee: 78000,
       devFee: 8000,
-      totalSeats: 60,
+      totalSeats: 120,
       icon: '⚡',
-      minPercentage: 60.0,
-      entranceExam: 'EAPCET / JEE',
-      eligibilityText: '10+2 / Intermediate with Maths & Physics',
-      subjects: 'Power Systems,Electrical Machines,Control Systems,Power Electronics,Renewable Energy',
-      campus: 'Rajahmundry'
+      minPercentage: 55,
+      entranceExam: 'EAPCET',
+      eligibilityText: '10+2 with Maths & Physics minimum 55%',
+      subjects: 'Power Systems,Control Systems,Electrical Machines,Power Electronics',
+      campusIds: '1,3'
     },
     {
-      id: 104,
-      name: 'B.Tech Mechanical',
-      type: 'UG',
+      id: 4,
+      name: 'B.Tech – Mechanical Engineering',
       department: 'Engineering',
+      type: 'UG',
       category: 'Engineering',
       duration: '4 Years',
-      annualFee: 83000,
+      annualFee: 78000,
       devFee: 8000,
       totalSeats: 60,
       icon: '⚙️',
-      minPercentage: 60.0,
-      entranceExam: 'EAPCET / JEE',
-      eligibilityText: '10+2 / Intermediate with Maths & Physics',
-      subjects: 'Engineering Mechanics,Thermodynamics,Fluid Mechanics & Hydraulic Machinery,Kinematics of Machinery,Manufacturing Technology,CAD/CAM',
-      campus: 'Peddapuram'
+      minPercentage: 55,
+      entranceExam: 'EAPCET',
+      eligibilityText: '10+2 with Maths & Physics minimum 55%',
+      subjects: 'Thermodynamics,Fluid Mechanics,Machine Design,CAD/CAM',
+      campusIds: '1,2'
     },
     {
-      id: 105,
-      name: 'B.Tech Civil',
-      type: 'UG',
+      id: 5,
+      name: 'B.Tech – Civil Engineering',
       department: 'Engineering',
+      type: 'UG',
       category: 'Engineering',
       duration: '4 Years',
-      annualFee: 83000,
+      annualFee: 76000,
       devFee: 8000,
       totalSeats: 60,
       icon: '🏗️',
-      minPercentage: 60.0,
-      entranceExam: 'EAPCET / JEE',
-      eligibilityText: '10+2 / Intermediate with Maths & Physics',
-      subjects: 'Strength of Materials,Surveying,Fluid Mechanics,Structural Analysis,Concrete Technology,Geotechnical Engineering',
-      campus: 'Kovvur'
+      minPercentage: 55,
+      entranceExam: 'EAPCET',
+      eligibilityText: '10+2 with Maths & Physics minimum 55%',
+      subjects: 'Structural Analysis,Surveying,Geotechnical Engineering,Transportation Engineering',
+      campusIds: '2,4'
     },
     {
-      id: 106,
-      name: 'MBA',
-      type: 'PG',
+      id: 6,
+      name: 'MBA – Business Administration',
       department: 'Management',
+      type: 'PG',
       category: 'Management',
       duration: '2 Years',
-      annualFee: 71000,
+      annualFee: 65000,
       devFee: 6000,
-      totalSeats: 120,
-      icon: '💼',
-      minPercentage: 50.0,
-      entranceExam: 'ICET',
-      eligibilityText: "Bachelor's Degree in any discipline",
-      subjects: 'Management Theory & Practice,Accounting for Managers,Financial Management,Marketing Management,Strategic Management,Entrepreneurship Development',
-      campus: 'Rajahmundry'
+      totalSeats: 80,
+      icon: '📊',
+      minPercentage: 50,
+      entranceExam: 'ICET/MAT',
+      eligibilityText: 'Any bachelor degree minimum 50%',
+      subjects: 'Marketing,Finance,HR Management,Operations,Business Analytics,Entrepreneurship',
+      campusIds: '1,3'
     },
     {
-      id: 107,
-      name: 'MCA',
+      id: 7,
+      name: 'MCA – Computer Applications',
+      department: 'Technology',
       type: 'PG',
-      department: 'Management',
-      category: 'Management',
+      category: 'Technology',
       duration: '2 Years',
-      annualFee: 64000,
+      annualFee: 58000,
       devFee: 6000,
       totalSeats: 60,
       icon: '🖥️',
-      minPercentage: 50.0,
+      minPercentage: 50,
       entranceExam: 'ICET',
-      eligibilityText: 'B.Sc/B.Com/B.A. with Math at 10+2 or degree level',
-      subjects: 'Mathematical Foundations,Java & Web Technologies,Data Structures & Algorithms,Cloud Computing,Artificial Intelligence,Cyber Security',
-      campus: 'Peddapuram'
+      eligibilityText: 'BSc/BCA/BCom with Maths minimum 50%',
+      subjects: 'Advanced Java,Python,Database Systems,Web Technologies,Mobile Development',
+      campusIds: '1,2'
     },
     {
-      id: 108,
-      name: 'M.Tech CS',
-      type: 'PG',
+      id: 8,
+      name: 'M.Tech – Computer Science',
       department: 'Engineering',
+      type: 'PG',
       category: 'Engineering',
       duration: '2 Years',
-      annualFee: 125000,
+      annualFee: 95000,
       devFee: 10000,
-      totalSeats: 18,
-      icon: '🔬',
-      minPercentage: 50.0,
-      entranceExam: 'GATE / PGECET',
-      eligibilityText: 'B.Tech in CSE/IT or MCA/M.Sc equivalent',
-      subjects: 'Advanced Algorithms,Machine Learning Algorithms,Big Data Engineering,Cloud Security & Privacy,Distributed Systems',
-      campus: 'Rajahmundry'
+      totalSeats: 30,
+      icon: '🤖',
+      minPercentage: 60,
+      entranceExam: 'GATE preferred',
+      eligibilityText: 'BTech in CS/IT/ECE minimum 60% GATE preferred',
+      subjects: 'Machine Learning,Deep Learning,NLP,Computer Vision,Big Data Analytics',
+      campusIds: '1'
     },
     {
-      id: 109,
-      name: 'B.Sc CS',
-      type: 'UG',
+      id: 9,
+      name: 'B.Sc. – Computer Science',
       department: 'Sciences',
+      type: 'UG',
       category: 'Sciences',
       duration: '3 Years',
-      annualFee: 42000,
+      annualFee: 38000,
       devFee: 4000,
-      totalSeats: 60,
-      icon: '🌐',
-      minPercentage: 50.0,
-      entranceExam: 'Merit-Based',
-      eligibilityText: '10+2 / Intermediate with MPC stream',
-      subjects: 'Programming in C,Data Structures,Database Management Systems,Software Engineering,Java Programming,Python Programming',
-      campus: 'Rajahmundry'
+      totalSeats: 80,
+      icon: '🔬',
+      minPercentage: 50,
+      entranceExam: 'Merit-based',
+      eligibilityText: '10+2 with Maths minimum 50%',
+      subjects: 'Programming in C,Data Structures,Database Management,Operating Systems,Python',
+      campusIds: '1,3,4'
     },
     {
-      id: 110,
-      name: 'B.Com General',
-      type: 'UG',
+      id: 10,
+      name: 'B.Com – General',
       department: 'Commerce',
+      type: 'UG',
       category: 'Commerce',
       duration: '3 Years',
       annualFee: 32000,
       devFee: 3000,
-      totalSeats: 100,
-      icon: '📊',
-      minPercentage: 45.0,
-      entranceExam: 'Merit-Based',
-      eligibilityText: '10+2 / Intermediate in any stream',
-      subjects: 'Financial Accounting,Business Organization & Management,Business Economics,Corporate Accounting,Business Law,Auditing',
-      campus: 'Kovvur'
+      totalSeats: 120,
+      icon: '📈',
+      minPercentage: 45,
+      entranceExam: 'Merit-based',
+      eligibilityText: '10+2 any stream minimum 45%',
+      subjects: 'Financial Accounting,Business Law,Income Tax,Cost Accounting,Auditing',
+      campusIds: '1,2,3,4'
     },
     {
-      id: 111,
-      name: 'B.Com CA',
-      type: 'UG',
+      id: 11,
+      name: 'B.Com – Computer Applications',
       department: 'Commerce',
+      type: 'UG',
       category: 'Commerce',
       duration: '3 Years',
-      annualFee: 35000,
-      devFee: 3000,
+      annualFee: 36000,
+      devFee: 3500,
       totalSeats: 80,
-      icon: '🖱️',
-      minPercentage: 45.0,
-      entranceExam: 'Merit-Based',
-      eligibilityText: '10+2 / Intermediate in any stream',
-      subjects: 'Financial Accounting,Information Technology,Database Management Systems,Web Technologies,E-Commerce,Corporate Accounting',
-      campus: 'Rajahmundry'
+      icon: '💹',
+      minPercentage: 45,
+      entranceExam: 'Merit-based',
+      eligibilityText: '10+2 any stream minimum 45%',
+      subjects: 'Accounting,Tally ERP,MS Excel,E-Commerce,Database Management',
+      campusIds: '1,3'
     },
     {
-      id: 112,
-      name: 'B.A. English',
-      type: 'UG',
+      id: 12,
+      name: 'B.A. – English',
       department: 'Arts',
+      type: 'UG',
       category: 'Arts',
       duration: '3 Years',
-      annualFee: 32000,
+      annualFee: 30000,
       devFee: 3000,
-      totalSeats: 60,
-      icon: '📚',
-      minPercentage: 45.0,
-      entranceExam: 'Merit-Based',
-      eligibilityText: '10+2 / Intermediate in any stream',
-      subjects: 'English Literature,Linguistics,Creative Writing,Phonetics,History of English Language',
-      campus: 'Peddapuram'
+      totalSeats: 80,
+      icon: '📖',
+      minPercentage: 45,
+      entranceExam: 'Merit-based',
+      eligibilityText: '10+2 any stream minimum 45%',
+      subjects: 'English Literature,Linguistics,Creative Writing,Communication Skills',
+      campusIds: '1,2'
     },
     {
-      id: 113,
+      id: 13,
       name: 'B.Pharmacy',
-      type: 'UG',
       department: 'Sciences',
+      type: 'UG',
       category: 'Sciences',
       duration: '4 Years',
-      annualFee: 97000,
+      annualFee: 88000,
       devFee: 9000,
-      totalSeats: 100,
+      totalSeats: 60,
       icon: '💊',
-      minPercentage: 50.0,
-      entranceExam: 'EAPCET',
-      eligibilityText: '10+2 / Intermediate with MPC / BiPC stream',
-      subjects: 'Pharmaceutics,Pharmacology,Medicinal Chemistry,Biochemistry,Human Anatomy & Physiology',
-      campus: 'Kakinada'
+      minPercentage: 55,
+      entranceExam: 'EAPCET BIPC',
+      eligibilityText: '10+2 with Physics Chemistry Biology/Maths minimum 55%',
+      subjects: 'Pharmacology,Pharmaceutical Chemistry,Pharmacognosy,Pharmaceutics',
+      campusIds: '1'
     },
     {
-      id: 114,
-      name: 'B.Sc Maths',
-      type: 'UG',
+      id: 14,
+      name: 'B.Sc. – Mathematics',
       department: 'Sciences',
+      type: 'UG',
       category: 'Sciences',
       duration: '3 Years',
-      annualFee: 32000,
-      devFee: 4000,
-      totalSeats: 50,
+      annualFee: 34000,
+      devFee: 3500,
+      totalSeats: 60,
       icon: '📐',
-      minPercentage: 50.0,
-      entranceExam: 'Merit-Based',
-      eligibilityText: '10+2 / Intermediate with MPC stream',
-      subjects: 'Differential Equations,Solid Geometry,Real Analysis,Abstract Algebra,Linear Algebra,Numerical Analysis',
-      campus: 'Kovvur'
+      minPercentage: 50,
+      entranceExam: 'Merit-based',
+      eligibilityText: '10+2 with Maths minimum 50%',
+      subjects: 'Calculus,Linear Algebra,Number Theory,Statistics,Operations Research',
+      campusIds: '1,4'
     },
     {
-      id: 115,
-      name: 'B.Sc Physics',
-      type: 'UG',
+      id: 15,
+      name: 'B.Sc. – Physics',
       department: 'Sciences',
+      type: 'UG',
       category: 'Sciences',
       duration: '3 Years',
-      annualFee: 32000,
-      devFee: 4000,
-      totalSeats: 50,
-      icon: '⚛️',
-      minPercentage: 50.0,
-      entranceExam: 'Merit-Based',
-      eligibilityText: '10+2 / Intermediate with MPC stream',
-      subjects: 'Mechanics & Wave Motion,Thermodynamics & Radiation,Optics,Electromagnetism,Modern Physics,Analog & Digital Electronics',
-      campus: 'Peddapuram'
+      annualFee: 34000,
+      devFee: 3500,
+      totalSeats: 60,
+      icon: '🔭',
+      minPercentage: 50,
+      entranceExam: 'Merit-based',
+      eligibilityText: '10+2 with Physics and Maths minimum 50%',
+      subjects: 'Classical Mechanics,Quantum Physics,Thermodynamics,Electromagnetism,Optics',
+      campusIds: '1'
     },
     {
-      id: 116,
-      name: 'M.Sc Data Science',
-      type: 'PG',
+      id: 16,
+      name: 'M.Sc. – Data Science',
       department: 'Sciences',
+      type: 'PG',
       category: 'Sciences',
       duration: '2 Years',
-      annualFee: 66000,
-      devFee: 6000,
+      annualFee: 72000,
+      devFee: 7000,
       totalSeats: 40,
-      icon: '📈',
-      minPercentage: 50.0,
-      entranceExam: 'Merit-Based',
-      eligibilityText: 'B.Sc/B.C.A. with Math or Statistics major',
-      subjects: 'Mathematical Foundations,Probability & Statistics,R Programming,Data Visualization,Machine Learning Foundations,Big Data Analytics',
-      campus: 'Kakinada'
+      icon: '📉',
+      minPercentage: 55,
+      entranceExam: 'GATE/JAM',
+      eligibilityText: 'BSc with Maths/Statistics/CS minimum 55%',
+      subjects: 'Machine Learning,Statistical Modeling,Big Data,Python for Data Science,Deep Learning',
+      campusIds: '1'
     },
     {
-      id: 117,
-      name: 'BBA',
-      type: 'UG',
+      id: 17,
+      name: 'BBA – Business Administration',
       department: 'Management',
+      type: 'UG',
       category: 'Management',
       duration: '3 Years',
-      annualFee: 52000,
-      devFee: 4000,
-      totalSeats: 60,
-      icon: '📈',
-      minPercentage: 45.0,
-      entranceExam: 'Merit-Based',
-      eligibilityText: '10+2 / Intermediate in any stream',
-      subjects: 'Principles of Management,Business Environment,Marketing Management,Human Resource Management,Financial Management,Organizational Behavior',
-      campus: 'Kakinada'
+      annualFee: 42000,
+      devFee: 4500,
+      totalSeats: 80,
+      icon: '🏢',
+      minPercentage: 45,
+      entranceExam: 'Merit-based',
+      eligibilityText: '10+2 any stream minimum 45%',
+      subjects: 'Principles of Management,Marketing,Accounting,Business Law,Entrepreneurship',
+      campusIds: '1,3'
     },
     {
-      id: 118,
-      name: 'Diploma Computer Engineering',
-      type: 'UG',
+      id: 18,
+      name: 'Diploma – Computer Engineering',
       department: 'Engineering',
+      type: 'UG',
       category: 'Engineering',
       duration: '3 Years',
-      annualFee: 35000,
+      annualFee: 28000,
       devFee: 3000,
       totalSeats: 60,
-      icon: '🔌',
-      minPercentage: 35.0,
-      entranceExam: 'POLYCET',
-      eligibilityText: '10th Class / SSC Pass Certificate',
-      subjects: 'Computer Hardware,Basic Programming,OS Foundations,Networking,Computer Workshop',
-      campus: 'Kovvur'
+      icon: '🛠️',
+      minPercentage: 35,
+      entranceExam: 'Merit based 10th',
+      eligibilityText: '10th pass minimum 35% no entrance exam',
+      subjects: 'Programming in C,Digital Electronics,Computer Hardware,Networking,Web Design',
+      campusIds: '2,4'
     }
   ];
 
-  for (const prog of programsData) {
-    const campus = campusMap[prog.campus];
-    await prisma.program.create({
-      data: {
-        id: prog.id,
-        name: prog.name,
-        department: prog.department,
-        type: prog.type,
-        category: prog.category,
-        duration: prog.duration,
-        annualFee: prog.annualFee,
-        devFee: prog.devFee,
-        totalSeats: prog.totalSeats,
-        icon: prog.icon,
-        minPercentage: prog.minPercentage,
-        entranceExam: prog.entranceExam,
-        eligibilityText: prog.eligibilityText,
-        subjects: prog.subjects,
-        campusIds: String(campus.id),
-        description: `${prog.name} program at ${campus.name}`,
-        campuses: {
-          connect: [{ id: campus.id }]
-        }
-      }
-    });
+  await prisma.program.createMany({
+    data: programsData
+  });
 
-    // Also seed a default course under this program so the existing endpoints and tests don't throw 404s
-    await prisma.course.create({
+  // Connect implicit program-campus relations
+  for (const prog of programsData) {
+    const campusIdsArray = prog.campusIds.split(',').map(id => Number(id.trim()));
+    await prisma.program.update({
+      where: { id: prog.id },
       data: {
-        name: `${prog.name} Introductory Course`,
-        programId: prog.id,
-        credits: 4,
-        semester: 1,
-        code: `CS-${prog.id}`,
-        title: `${prog.name} Introduction`,
-        description: `Introductory course for ${prog.name}`
+        campuses: {
+          connect: campusIdsArray.map(id => ({ id }))
+        }
       }
     });
   }
 
-  // Seed default Placement Drives for placement page and tests
+  // Seed default courses
+  const coursesData = programsData.map(prog => ({
+    name: `${prog.name} Introductory Course`,
+    programId: prog.id,
+    credits: 4,
+    semester: 1,
+    code: `CS-${prog.id}`,
+    title: `${prog.name} Introduction`,
+    description: `Introductory course for ${prog.name}`
+  }));
+
+  await prisma.course.createMany({
+    data: coursesData
+  });
+
+  // Seed default Placement Drives
   await prisma.placementDrive.createMany({
     data: [
       {
         title: 'TechCorp Software Engineering Drive',
-        eligiblePrograms: 'B.Tech CSE,M.Tech CS,B.Sc CS',
+        eligiblePrograms: 'B.Tech – Computer Science & Engineering,M.Tech – Computer Science,B.Sc. – Computer Science',
         company: 'TechCorp Solutions',
         location: 'Rajahmundry Office',
       },
       {
         title: 'Global Finance Analyst Recruitment',
-        eligiblePrograms: 'MBA,BBA,B.Com General,B.Com CA',
+        eligiblePrograms: 'MBA – Business Administration,BBA – Business Administration,B.Com – General,B.Com – Computer Applications',
         company: 'Global Finance Group',
         location: 'Kakinada Office',
       }
     ],
   });
 
-  console.log('Seeding completed successfully!');
+  console.log('Seeded 18 programs successfully');
 }
 
 main()

@@ -211,7 +211,7 @@ router.post('/create', async (req: Request, res: Response) => {
         twelfthPercentage: twelfthPercentage ? Number(twelfthPercentage) : null,
         source: source || 'Website',
         message: message || backgroundNotes || null,
-        status: 'pending', // Keep pending status to satisfy tests
+        status: 'new', // New enquiry status is 'new'
         priority: finalPriority,
         aiRecommendation,
       },
@@ -243,11 +243,11 @@ const handleListEnquiries = async (req: Request, res: Response) => {
     const { status, priority, programId, startDate, endDate } = req.query;
     const where: any = {};
 
-    if (status && typeof status === 'string' && status !== '') {
+    if (status && typeof status === 'string' && status !== '' && status !== 'all') {
       where.status = status;
     }
 
-    if (priority && typeof priority === 'string' && priority !== '') {
+    if (priority && typeof priority === 'string' && priority !== '' && priority !== 'all') {
       where.priority = priority;
     }
 
