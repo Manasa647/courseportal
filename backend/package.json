@@ -4,15 +4,10 @@
   "description": "Express Backend for Course & Program Portal",
   "main": "dist/server.js",
   "scripts": {
-    "db:switch": "node scripts/switch-db.js",
     "dev": "ts-node src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "prisma:generate": "npm run db:switch && prisma generate",
-    "prisma:migrate": "npm run db:switch && prisma migrate dev",
-    "prisma:deploy": "npm run db:switch && prisma migrate deploy",
-    "prisma:seed": "npm run db:switch && ts-node prisma/seed.ts",
-    "prisma:push": "npm run db:switch && prisma db push",
+    "seed": "ts-node src/seed.ts",
     "test:integration": "jest --runInBand",
     "test": "jest --runInBand"
   },
@@ -42,7 +37,4 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5"
   },
-  "prisma": {
-    "seed": "ts-node prisma/seed.ts"
-  }
 }
