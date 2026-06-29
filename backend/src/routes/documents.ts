@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import prisma from '../config/db';
+import mongoose from 'mongoose';
+import { Document as StudentDoc } from '../models/models';
 
 const router = Router();
 
@@ -62,8 +63,8 @@ router.post('/upload', (req: Request, res: Response) => {
       if (!entityType || !['student', 'application'].includes(entityType)) {
         errors.push("entityType is required and must be either 'student' or 'application'.");
       }
-      if (!entityId || isNaN(Number(entityId))) {
-        errors.push('entityId is required and must be a valid integer.');
+      if (!entityId || typeof entityId !== 'string' || entityId.trim() === '') {
+        errors.push('entityId is required and must be a string.');
       }
       if (!documentType || typeof documentType !== 'string' || documentType.trim() === '') {
         errors.push('documentType is required and must be a string.');
@@ -73,7 +74,6 @@ router.post('/upload', (req: Request, res: Response) => {
       }
 
       if (errors.length > 0) {
-        // Remove uploaded file if validation failed
         if (file) {
           fs.unlinkSync(file.path);
         }
@@ -87,20 +87,23 @@ router.post('/upload', (req: Request, res: Response) => {
       const fileUrl = `/uploads/${file!.filename}`;
 
       // Create Document in Database
-      const doc = await prisma.document.create({
-        data: {
-          entityType,
-          entityId: Number(entityId),
-          fileName: file!.originalname,
-          fileUrl,
-          documentType,
-        },
+      const doc = await StudentDoc.create({
+        entityType,
+        entityId,
+        fileName: file!.originalname,
+        fileUrl,
+        documentType,
       });
+
+      const formatted = {
+        id: doc._id.toString(),
+        ...doc.toObject()
+      };
 
       return res.status(201).json({
         success: true,
         message: 'Document uploaded successfully.',
-        data: doc,
+        data: formatted,
       });
     } catch (error: any) {
       console.error('Error handling document upload:', error);
@@ -123,26 +126,26 @@ router.get('/list', async (req: Request, res: Response) => {
   try {
     const { entityType, entityId } = req.query;
 
-    if (!entityType || !entityId || isNaN(Number(entityId))) {
+    if (!entityType || !entityId || typeof entityId !== 'string' || entityId.trim() === '') {
       return res.status(400).json({
         success: false,
-        message: 'entityType and a numeric entityId query parameters are required.',
+        message: 'entityType and a valid entityId query parameters are required.',
       });
     }
 
-    const docs = await prisma.document.findMany({
-      where: {
-        entityType: String(entityType),
-        entityId: Number(entityId),
-      },
-      orderBy: {
-        uploadDate: 'desc',
-      },
-    });
+    const docs = await StudentDoc.find({
+      entityType: String(entityType),
+      entityId: String(entityId),
+    }).sort({ uploadDate: -1 }).lean();
+
+    const formatted = docs.map((d: any) => ({
+      id: d._id.toString(),
+      ...d
+    }));
 
     return res.status(200).json({
       success: true,
-      data: docs,
+      data: formatted,
     });
   } catch (error: any) {
     console.error('Error listing documents:', error);
@@ -159,17 +162,14 @@ router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    if (!id || isNaN(Number(id))) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
         message: 'A valid Document ID is required.',
       });
     }
 
-    const doc = await prisma.document.findUnique({
-      where: { id: Number(id) },
-    });
-
+    const doc = await StudentDoc.findById(id).lean();
     if (!doc) {
       return res.status(404).json({
         success: false,
@@ -190,9 +190,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }
 
     // Delete record from database
-    await prisma.document.delete({
-      where: { id: Number(id) },
-    });
+    await StudentDoc.findByIdAndDelete(id);
 
     return res.status(200).json({
       success: true,
@@ -213,10 +211,10 @@ router.get('/checklist', async (req: Request, res: Response) => {
   try {
     const { entityId, entityType } = req.query;
 
-    if (!entityId || isNaN(Number(entityId))) {
+    if (!entityId || typeof entityId !== 'string' || entityId.trim() === '') {
       return res.status(400).json({
         success: false,
-        message: 'A numeric entityId query parameter is required.',
+        message: 'A valid entityId query parameter is required.',
       });
     }
 
@@ -224,12 +222,10 @@ router.get('/checklist', async (req: Request, res: Response) => {
     const requiredTypes = ['ID Proof', 'Previous Transcript', 'Photo', 'Transfer Certificate'];
 
     // Retrieve uploaded documents
-    const uploadedDocs = await prisma.document.findMany({
-      where: {
-        entityId: Number(entityId),
-        entityType: typeFilter,
-      },
-    });
+    const uploadedDocs = await StudentDoc.find({
+      entityId: String(entityId),
+      entityType: typeFilter,
+    }).lean();
 
     const checklist = requiredTypes.map((requiredType) => {
       const doc = uploadedDocs.find(
@@ -238,7 +234,7 @@ router.get('/checklist', async (req: Request, res: Response) => {
       return {
         documentType: requiredType,
         status: doc ? 'uploaded' : 'missing',
-        document: doc || null,
+        document: doc ? { id: doc._id.toString(), ...doc } : null,
       };
     });
 

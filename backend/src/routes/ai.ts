@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import prisma from '../config/db';
+import mongoose from 'mongoose';
+import { Student, AttendanceRecord, Mark } from '../models/models';
 import { AIService } from '../services/aiService';
 
 const router = Router();
@@ -86,23 +87,14 @@ router.post('/progress-report', async (req: Request, res: Response) => {
   try {
     const { studentId, teacherNotes } = req.body;
 
-    if (!studentId || isNaN(Number(studentId))) {
+    if (!studentId || !mongoose.Types.ObjectId.isValid(studentId)) {
       return res.status(400).json({
         success: false,
         message: 'A valid studentId is required.',
       });
     }
 
-    const student = await prisma.student.findUnique({
-      where: { id: Number(studentId) },
-      include: {
-        attendanceRecords: true,
-        marks: {
-          include: { course: true }
-        }
-      }
-    });
-
+    const student = await Student.findById(studentId).lean();
     if (!student) {
       return res.status(404).json({
         success: false,
@@ -110,14 +102,16 @@ router.post('/progress-report', async (req: Request, res: Response) => {
       });
     }
 
-    const totalAttendance = student.attendanceRecords.length;
+    const attendanceRecords = await AttendanceRecord.find({ studentId: student._id }).lean();
+    const totalAttendance = attendanceRecords.length;
     const attendancePercentage = totalAttendance > 0
-      ? ((student.attendanceRecords.filter(r => r.status === 'present').length + 
-          student.attendanceRecords.filter(r => r.status === 'late').length * 0.5) / totalAttendance) * 100
+      ? ((attendanceRecords.filter(r => r.status === 'present').length + 
+          attendanceRecords.filter(r => r.status === 'late').length * 0.5) / totalAttendance) * 100
       : 100.0;
 
-    const marksBySubject = student.marks.map(m => ({
-      subject: m.course.title || m.course.code,
+    const marks = await Mark.find({ studentId: student._id }).populate('courseId').lean();
+    const marksBySubject = marks.map((m: any) => ({
+      subject: m.courseId?.title || m.courseId?.code || 'Subject',
       score: m.score,
       maxScore: m.maxScore
     }));

@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import prisma from '../config/db';
+import { Program } from '../models/models';
 
 interface AIInput {
   name: string;
@@ -78,7 +78,7 @@ export class AIService {
    * Recommends academic programs based on student interests and prior academic background.
    */
   static async recommendCourses(interests: string, priorBackground?: string): Promise<{ programName: string, matchReason: string, matchScore: number }[]> {
-    const programs = await prisma.program.findMany();
+    const programs = await Program.find().lean();
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (apiKey) {

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import prisma from '../config/db';
+import mongoose from 'mongoose';
+import { Student, Parent, Campus, Application, Enquiry, FeePayment, AttendanceRecord, Mark, Result, Program } from '../models/models';
 import { validateStudent } from '../middleware/validation';
 import { WorkflowService } from '../services/workflowService';
 import { calculateFinalGrade } from '../utils/gradeCalculator';
@@ -13,17 +14,14 @@ router.post('/create', async (req: Request, res: Response) => {
       // Logic for POST /api/applications/create
       const { enquiryId } = req.body;
       
-      if (!enquiryId || isNaN(Number(enquiryId))) {
+      if (!enquiryId || !mongoose.Types.ObjectId.isValid(enquiryId)) {
         return res.status(400).json({
           success: false,
-          message: 'Enquiry ID is required and must be an integer.',
+          message: 'Enquiry ID is required and must be a valid ObjectId.',
         });
       }
 
-      const enquiry = await prisma.enquiry.findUnique({
-        where: { id: Number(enquiryId) },
-      });
-
+      const enquiry = await Enquiry.findById(enquiryId).lean();
       if (!enquiry) {
         return res.status(404).json({
           success: false,
@@ -32,99 +30,91 @@ router.post('/create', async (req: Request, res: Response) => {
       }
 
       // Split name into first and last name
-      const nameParts = enquiry.name.trim().split(/\s+/);
+      const nameParts = (enquiry.name || '').trim().split(/\s+/);
       const firstName = nameParts[0] || 'Enquiry';
       const lastName = nameParts.slice(1).join(' ') || 'Student';
 
-      // Perform transaction to create student, application, and update enquiry status
-      const application = await prisma.$transaction(async (tx) => {
-        // Find existing student by email or create new
-        let student = await tx.student.findUnique({ where: { email: enquiry.email } });
-        
-        if (!student) {
-          student = await tx.student.create({
-            data: {
-              firstName,
-              lastName,
-              email: enquiry.email,
-              phone: enquiry.phone,
-              dateOfBirth: new Date('1990-01-01'), // Default date since dateOfBirth is non-nullable
-              campusId: enquiry.campusId,
-            },
-          });
-        }
-
-        // Create the application
-        const newApp = await tx.application.create({
-          data: {
-            enquiryId: enquiry.id,
-            studentId: student.id,
-            programId: enquiry.programId,
-            status: 'submitted',
-          },
+      // Find existing student by email or create new
+      let student = await Student.findOne({ email: enquiry.email });
+      if (!student) {
+        student = await Student.create({
+          firstName,
+          lastName,
+          email: enquiry.email,
+          phone: enquiry.phone,
+          dateOfBirth: new Date('1990-01-01'),
+          campusId: enquiry.campusId || null,
         });
+      }
 
-        // Update the enquiry status
-        await tx.enquiry.update({
-          where: { id: enquiry.id },
-          data: { status: 'applied' },
-        });
-
-        return newApp;
+      // Create the application
+      const newApp = await Application.create({
+        enquiryId: enquiry._id,
+        studentId: student._id,
+        programId: enquiry.programId || null,
+        status: 'submitted',
       });
+
+      // Update the enquiry status
+      await Enquiry.findByIdAndUpdate(enquiry._id, { status: 'applied' });
+
+      const formatted = {
+        id: newApp._id.toString(),
+        ...newApp.toObject()
+      };
 
       return res.status(201).json({
         success: true,
         message: 'Enquiry successfully converted to Application and Student.',
-        data: application,
+        data: formatted,
       });
 
     } else {
       // Logic for POST /api/students/create
-      // First invoke validation logic manually since this router handles dual routes
       return validateStudent(req, res, async () => {
         const { firstName, lastName, email, phone, dateOfBirth, enrollmentDate, campusId, parent } = req.body;
 
         try {
-          const result = await prisma.$transaction(async (tx) => {
-            // Check for student email conflict
-            const existingStudent = await tx.student.findUnique({ where: { email } });
-            if (existingStudent) {
-              throw new Error('A student with this email address already exists.');
-            }
-
-            const newStudent = await tx.student.create({
-              data: {
-                firstName,
-                lastName,
-                email,
-                phone: phone || null,
-                dateOfBirth: new Date(dateOfBirth),
-                enrollmentDate: enrollmentDate ? new Date(enrollmentDate) : new Date(),
-                campusId: campusId ? Number(campusId) : null,
-              },
+          const existingStudent = await Student.findOne({ email });
+          if (existingStudent) {
+            return res.status(400).json({
+              success: false,
+              message: 'A student with this email address already exists.',
             });
+          }
 
-            if (parent) {
-              await tx.parent.create({
-                data: {
-                  studentId: newStudent.id,
-                  firstName: parent.firstName,
-                  lastName: parent.lastName,
-                  relationship: parent.relationship,
-                  phone: parent.phone,
-                  email: parent.email || null,
-                },
-              });
-            }
+          const cleanCampusId = (campusId && mongoose.Types.ObjectId.isValid(campusId)) ? new mongoose.Types.ObjectId(campusId) : undefined;
 
-            return newStudent;
+          const newStudent = await Student.create({
+            firstName,
+            lastName,
+            email,
+            phone: phone || null,
+            dateOfBirth: new Date(dateOfBirth),
+            enrollmentDate: enrollmentDate ? new Date(enrollmentDate) : new Date(),
+            campusId: cleanCampusId,
           });
+
+          if (parent) {
+            await Parent.create({
+              studentId: newStudent._id,
+              firstName: parent.firstName,
+              lastName: parent.lastName,
+              relationship: parent.relationship,
+              phone: parent.phone,
+              email: parent.email || null,
+            });
+          }
+
+          const formatted = {
+            id: newStudent._id.toString(),
+            ...newStudent.toObject()
+          };
 
           return res.status(201).json({
             success: true,
             message: 'Student record created successfully.',
-            data: result,
+            data: formatted,
           });
         } catch (txErr: any) {
           return res.status(400).json({
@@ -150,37 +140,44 @@ router.get('/list', async (req: Request, res: Response) => {
     const { campusId, search } = req.query;
     const whereClause: any = {};
 
-    if (campusId && campusId !== '') {
-      whereClause.campusId = Number(campusId);
+    if (campusId && campusId !== '' && mongoose.Types.ObjectId.isValid(campusId as string)) {
+      whereClause.campusId = new mongoose.Types.ObjectId(campusId as string);
     }
 
     if (search && typeof search === 'string' && search.trim() !== '') {
-      whereClause.OR = [
-        { firstName: { contains: search } },
-        { lastName: { contains: search } },
-        { email: { contains: search } },
+      const searchRegex = new RegExp(search, 'i');
+      whereClause.$or = [
+        { firstName: searchRegex },
+        { lastName: searchRegex },
+        { email: searchRegex },
       ];
     }
 
-    const students = await prisma.student.findMany({
-      where: whereClause,
-      include: {
-        parents: true,
-        campus: true,
-        application: {
-          include: {
-            program: true,
-          },
-        },
-      },
-      orderBy: {
-        enrollmentDate: 'desc',
-      },
-    });
+    const students = await Student.find(whereClause)
+      .sort({ enrollmentDate: -1 })
+      .lean();
+
+    const formatted = await Promise.all(students.map(async (s: any) => {
+      const parents = await Parent.find({ studentId: s._id }).lean();
+      const campus = s.campusId ? await Campus.findById(s.campusId).lean() : null;
+      const application = await Application.findOne({ studentId: s._id }).populate('programId').lean();
+
+      return {
+        id: s._id.toString(),
+        ...s,
+        parents: parents.map((p: any) => ({ id: p._id.toString(), ...p })),
+        campus: campus ? { id: campus._id.toString(), ...campus } : null,
+        application: application ? {
+          id: application._id.toString(),
+          ...application,
+          program: application.programId ? { id: application.programId._id.toString(), ...application.programId } : null
+        } : null
+      };
+    }));
 
     return res.status(200).json({
       success: true,
-      data: students,
+      data: formatted,
     });
   } catch (error: any) {
     console.error('Error listing students:', error);
@@ -197,49 +194,14 @@ router.get('/detail', async (req: Request, res: Response) => {
   try {
     const { id } = req.query;
 
-    if (!id || isNaN(Number(id))) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id as string)) {
       return res.status(400).json({
         success: false,
         message: 'A valid Student ID query parameter is required.',
       });
     }
 
-    const student = await prisma.student.findUnique({
-      where: { id: Number(id) },
-      include: {
-        parents: true,
-        campus: true,
-        application: {
-          include: {
-            program: true,
-          },
-        },
-        feePayments: {
-          include: {
-            receipt: true,
-          },
-          orderBy: {
-            paymentDate: 'desc',
-          },
-        },
-        attendanceRecords: {
-          orderBy: {
-            date: 'desc',
-          },
-        },
-        marks: {
-          orderBy: {
-            createdAt: 'desc',
-          },
-        },
-        results: {
-          orderBy: {
-            createdAt: 'desc',
-          },
-        },
-      },
-    });
-
+    const student: any = await Student.findById(id).lean();
     if (!student) {
       return res.status(404).json({
         success: false,
@@ -247,27 +209,58 @@ router.get('/detail', async (req: Request, res: Response) => {
       });
     }
 
+    // Load sub-details
+    const parents = await Parent.find({ studentId: student._id }).lean();
+    const campus = student.campusId ? await Campus.findById(student.campusId).lean() : null;
+    const application = await Application.findOne({ studentId: student._id }).populate('programId').lean();
+    const feePayments = await FeePayment.find({ studentId: student._id }).sort({ paymentDate: -1 }).lean();
+    
+    const formattedPayments = await Promise.all(feePayments.map(async (f: any) => {
+      const receipt = await mongoose.model('Receipt').findOne({ paymentId: f._id }).lean() as any;
+      return {
+        id: f._id.toString(),
+        ...f,
+        receipt: receipt ? { id: receipt._id.toString(), ...receipt } : null
+      };
+    }));
+
+    const attendanceRecords = await AttendanceRecord.find({ studentId: student._id }).sort({ date: -1 }).lean();
+    const marks = await Mark.find({ studentId: student._id }).sort({ createdAt: -1 }).lean();
+    const results = await Result.find({ studentId: student._id }).sort({ createdAt: -1 }).lean();
+
     // Generate Attendance Summary
-    const present = student.attendanceRecords.filter(r => r.status === 'present').length;
-    const absent = student.attendanceRecords.filter(r => r.status === 'absent').length;
-    const late = student.attendanceRecords.filter(r => r.status === 'late').length;
-    const excused = student.attendanceRecords.filter(r => r.status === 'excused').length;
+    const present = attendanceRecords.filter(r => r.status === 'present').length;
+    const absent = attendanceRecords.filter(r => r.status === 'absent').length;
+    const late = attendanceRecords.filter(r => r.status === 'late').length;
+    const excused = attendanceRecords.filter(r => r.status === 'excused').length;
 
     const attendanceSummary = {
       present,
       absent,
       late,
       excused,
-      total: student.attendanceRecords.length,
-      attendanceRate: student.attendanceRecords.length > 0 
-        ? Math.round(((present + late * 0.5) / student.attendanceRecords.length) * 100) 
+      total: attendanceRecords.length,
+      attendanceRate: attendanceRecords.length > 0 
+        ? Math.round(((present + late * 0.5) / attendanceRecords.length) * 100) 
         : 100,
     };
 
     return res.status(200).json({
       success: true,
       data: {
+        id: student._id.toString(),
         ...student,
+        parents: parents.map((p: any) => ({ id: p._id.toString(), ...p })),
+        campus: campus ? { id: campus._id.toString(), ...campus } : null,
+        application: application ? {
+          id: application._id.toString(),
+          ...application,
+          program: application.programId ? { id: application.programId._id.toString(), ...application.programId } : null
+        } : null,
+        feePayments: formattedPayments,
+        attendanceRecords: attendanceRecords.map((r: any) => ({ id: r._id.toString(), ...r })),
+        marks: marks.map((m: any) => ({ id: m._id.toString(), ...m })),
+        results: results.map((r: any) => ({ id: r._id.toString(), ...r })),
         attendanceSummary,
       },
     });
@@ -287,14 +280,13 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    if (!id || isNaN(Number(id))) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
         message: 'A valid Application ID is required.',
       });
     }
 
-    // Map approved to accepted to match DB constraint
     let mappedStatus = status;
     if (status === 'approved') {
       mappedStatus = 'accepted';
@@ -308,15 +300,28 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
       });
     }
 
-    const application = await prisma.application.update({
-      where: { id: Number(id) },
-      data: { status: mappedStatus },
-    });
+    const application = await Application.findByIdAndUpdate(
+      id,
+      { status: mappedStatus },
+      { new: true }
+    );
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: 'Application not found.',
+      });
+    }
+
+    const formatted = {
+      id: application._id.toString(),
+      ...application.toObject()
+    };
 
     return res.status(200).json({
       success: true,
       message: 'Application status updated successfully.',
-      data: application,
+      data: formatted,
     });
   } catch (error: any) {
     console.error('Error updating application status:', error);
@@ -333,17 +338,14 @@ router.get('/:id/dropout-risk', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    if (!id || isNaN(Number(id))) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
-        message: 'A valid numeric student ID is required.',
+        message: 'A valid student ID is required.',
       });
     }
 
-    const student = await prisma.student.findUnique({
-      where: { id: Number(id) },
-    });
-
+    const student = await Student.findById(id).lean();
     if (!student) {
       return res.status(404).json({
         success: false,
@@ -352,9 +354,7 @@ router.get('/:id/dropout-risk', async (req: Request, res: Response) => {
     }
 
     // 1. Calculate overall attendance percentage
-    const attendanceRecords = await prisma.attendanceRecord.findMany({
-      where: { studentId: student.id },
-    });
+    const attendanceRecords = await AttendanceRecord.find({ studentId: student._id }).lean();
     const totalAttendance = attendanceRecords.length;
     const attendancePercentage = totalAttendance > 0
       ? ((attendanceRecords.filter(r => r.status === 'present').length + 
@@ -362,23 +362,16 @@ router.get('/:id/dropout-risk', async (req: Request, res: Response) => {
       : 100.0;
 
     // 2. Calculate average marks percentage
-    const marks = await prisma.mark.findMany({
-      where: { studentId: student.id },
-    });
+    const marks = await Mark.find({ studentId: student._id }).lean();
     const averageMarks = marks.length > 0
-      ? calculateFinalGrade(marks).percentage
+      ? calculateFinalGrade(marks as any).percentage
       : 100.0;
 
     // 3. Calculate fee overdue days
-    const pendingPayments = await prisma.feePayment.findMany({
-      where: {
-        studentId: student.id,
-        status: 'pending',
-      },
-      orderBy: {
-        paymentDate: 'asc',
-      },
-    });
+    const pendingPayments = await FeePayment.find({
+      studentId: student._id,
+      status: 'pending',
+    }).sort({ paymentDate: 1 }).lean();
 
     let feeOverdueDays = 0;
     if (pendingPayments.length > 0) {
@@ -399,7 +392,7 @@ router.get('/:id/dropout-risk', async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       data: {
-        studentId: student.id,
+        studentId: student._id.toString(),
         metrics: {
           attendancePercentage,
           averageMarks,

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import prisma from '../config/db';
+import mongoose from 'mongoose';
+import { Enquiry, FollowUp, StatusHistory, Program, Campus } from '../models/models';
 import { WorkflowService } from '../services/workflowService';
 import { AIService } from '../services/aiService';
 
@@ -8,13 +9,12 @@ const router = Router();
 // 1. GET /api/enquiries/analytics
 router.get('/analytics', async (req: Request, res: Response) => {
   try {
-    const totalEnquiries = await prisma.enquiry.count();
+    const totalEnquiries = await Enquiry.countDocuments();
 
     // Group by Status
-    const statusCounts = await prisma.enquiry.groupBy({
-      by: ['status'],
-      _count: { id: true }
-    });
+    const statusCounts = await Enquiry.aggregate([
+      { $group: { _id: "$status", count: { $sum: 1 } } }
+    ]);
     const byStatus: Record<string, number> = {
       new: 0,
       contacted: 0,
@@ -23,23 +23,26 @@ router.get('/analytics', async (req: Request, res: Response) => {
       closed: 0
     };
     for (const item of statusCounts) {
-      const key = (item.status || '').toLowerCase();
-      byStatus[key] = item._count.id;
+      const key = (item._id || '').toLowerCase();
+      if (key in byStatus) {
+        byStatus[key] = item.count;
+      }
     }
 
     // Group by Priority
-    const priorityCounts = await prisma.enquiry.groupBy({
-      by: ['priority'],
-      _count: { id: true }
-    });
+    const priorityCounts = await Enquiry.aggregate([
+      { $group: { _id: "$priority", count: { $sum: 1 } } }
+    ]);
     const byPriority: Record<string, number> = {
       high: 0,
       medium: 0,
       low: 0
     };
     for (const item of priorityCounts) {
-      const key = (item.priority || '').toLowerCase();
-      byPriority[key] = item._count.id;
+      const key = (item._id || '').toLowerCase();
+      if (key in byPriority) {
+        byPriority[key] = item.count;
+      }
     }
 
     // Date Ranges
@@ -47,17 +50,8 @@ router.get('/analytics', async (req: Request, res: Response) => {
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    const todayCount = await prisma.enquiry.count({
-      where: {
-        createdAt: { gte: startOfToday }
-      }
-    });
-
-    const thisWeekCount = await prisma.enquiry.count({
-      where: {
-        createdAt: { gte: startOfWeek }
-      }
-    });
+    const todayCount = await Enquiry.countDocuments({ createdAt: { $gte: startOfToday } });
+    const thisWeekCount = await Enquiry.countDocuments({ createdAt: { $gte: startOfWeek } });
 
     return res.status(200).json({
       success: true,
@@ -163,8 +157,8 @@ router.post('/create', async (req: Request, res: Response) => {
 
     // Resolve program and campus names if they exist to pass to the AI recommendation service
     let programName = undefined;
-    if (programId && programId !== '') {
-      const prog = await prisma.program.findUnique({ where: { id: Number(programId) } });
+    if (programId && mongoose.Types.ObjectId.isValid(programId)) {
+      const prog = await Program.findById(programId).lean();
       if (prog) programName = prog.name;
     }
 
@@ -183,7 +177,7 @@ router.post('/create', async (req: Request, res: Response) => {
         name: actualName,
         email,
         backgroundNotes,
-        programId: programId ? Number(programId) : undefined
+        programId: programId || undefined
       });
     }
 
@@ -197,35 +191,39 @@ router.post('/create', async (req: Request, res: Response) => {
     });
 
     // Create enquiry in DB
-    const enquiry = await prisma.enquiry.create({
-      data: {
-        fullName: actualName,
-        name: actualName,
-        email,
-        phone: phone || null,
-        programId: programId ? Number(programId) : null,
-        campusId: campusId ? Number(campusId) : null,
-        programName: programName || null,
-        campusPreference: campusPreference || null,
-        tenthPercentage: tenthPercentage ? Number(tenthPercentage) : null,
-        twelfthPercentage: twelfthPercentage ? Number(twelfthPercentage) : null,
-        source: source || 'Website',
-        message: message || backgroundNotes || null,
-        status: 'new', // New enquiry status is 'new'
-        priority: finalPriority,
-        aiRecommendation,
-      },
+    const cleanProgramId = (programId && mongoose.Types.ObjectId.isValid(programId)) ? new mongoose.Types.ObjectId(programId) : undefined;
+    const cleanCampusId = (campusId && mongoose.Types.ObjectId.isValid(campusId)) ? new mongoose.Types.ObjectId(campusId) : undefined;
+
+    const enquiry = await Enquiry.create({
+      fullName: actualName,
+      name: actualName,
+      email,
+      phone: phone || null,
+      programId: cleanProgramId,
+      campusId: cleanCampusId,
+      programName: programName || null,
+      campusPreference: campusPreference || null,
+      tenthPercentage: tenthPercentage ? Number(tenthPercentage) : null,
+      twelfthPercentage: twelfthPercentage ? Number(twelfthPercentage) : null,
+      source: source || 'Website',
+      message: message || backgroundNotes || null,
+      status: 'new',
+      priority: finalPriority,
+      aiRecommendation,
     });
 
     // Generate and save automated follow-ups for test compliance
-    const followUpsData = WorkflowService.generateFollowUps(enquiry.id);
-    await prisma.followUp.createMany({
-      data: followUpsData,
-    });
+    const followUpsData = WorkflowService.generateFollowUps(enquiry._id.toString());
+    await FollowUp.insertMany(followUpsData);
+
+    const formatted = {
+      id: enquiry._id.toString(),
+      ...enquiry.toObject()
+    };
 
     return res.status(201).json({
       success: true,
-      data: enquiry,
+      data: formatted,
     });
   } catch (error: any) {
     console.error('Error creating enquiry:', error);
@@ -251,36 +249,43 @@ const handleListEnquiries = async (req: Request, res: Response) => {
       where.priority = priority;
     }
 
-    if (programId && programId !== '') {
-      where.programId = Number(programId);
+    if (programId && mongoose.Types.ObjectId.isValid(programId as string)) {
+      where.programId = new mongoose.Types.ObjectId(programId as string);
     }
 
     if (startDate || endDate) {
       where.dateReceived = {};
       if (startDate && typeof startDate === 'string' && startDate !== '') {
-        where.dateReceived.gte = new Date(startDate);
+        where.dateReceived.$gte = new Date(startDate);
       }
       if (endDate && typeof endDate === 'string' && endDate !== '') {
-        where.dateReceived.lte = new Date(endDate);
+        where.dateReceived.$lte = new Date(endDate);
       }
     }
 
-    const enquiries = await prisma.enquiry.findMany({
-      where,
-      include: {
-        program: { select: { id: true, name: true, department: true } },
-        campus: { select: { id: true, name: true, location: true } },
-        followUps: true,
-        statusHistories: true
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    const enquiries = await Enquiry.find(where)
+      .populate('programId', 'name department')
+      .populate('campusId', 'name location')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const formatted = await Promise.all(enquiries.map(async (e: any) => {
+      const followUps = await FollowUp.find({ enquiryId: e._id }).lean();
+      const statusHistories = await StatusHistory.find({ enquiryId: e._id }).lean();
+      
+      return {
+        id: e._id.toString(),
+        ...e,
+        program: e.programId ? { id: e.programId._id.toString(), ...e.programId } : null,
+        campus: e.campusId ? { id: e.campusId._id.toString(), ...e.campusId } : null,
+        followUps: followUps.map((f: any) => ({ id: f._id.toString(), ...f })),
+        statusHistories: statusHistories.map((h: any) => ({ id: h._id.toString(), ...h }))
+      };
+    }));
 
     return res.status(200).json({
       success: true,
-      data: enquiries,
+      data: formatted,
     });
   } catch (error: any) {
     console.error('Error listing enquiries:', error);
@@ -297,35 +302,16 @@ router.get('/list', handleListEnquiries);
 // 4. GET /api/enquiries/detail & GET /api/enquiries/:id - Fetch one details
 const handleEnquiryDetail = async (req: Request, res: Response) => {
   try {
-    const id = req.params.id ? Number(req.params.id) : Number(req.query.id);
+    const id = (req.params.id || req.query.id) as string;
 
-    if (isNaN(id)) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
         message: 'A valid Enquiry ID is required.',
       });
     }
 
-    const enquiry = await prisma.enquiry.findUnique({
-      where: { id },
-      include: {
-        program: true,
-        campus: true,
-        followUps: {
-          orderBy: { createdAt: 'asc' },
-        },
-        statusHistories: {
-          orderBy: { changedAt: 'asc' }
-        },
-        application: {
-          select: {
-            id: true,
-            studentId: true,
-          }
-        }
-      },
-    });
-
+    const enquiry: any = await Enquiry.findById(id).lean();
     if (!enquiry) {
       return res.status(404).json({
         success: false,
@@ -333,9 +319,28 @@ const handleEnquiryDetail = async (req: Request, res: Response) => {
       });
     }
 
+    // Resolve relations
+    const program = enquiry.programId ? await Program.findById(enquiry.programId).lean() : null;
+    const campus = enquiry.campusId ? await Campus.findById(enquiry.campusId).lean() : null;
+    const followUps = await FollowUp.find({ enquiryId: enquiry._id }).sort({ createdAt: 1 }).lean();
+    const statusHistories = await StatusHistory.find({ enquiryId: enquiry._id }).sort({ changedAt: 1 }).lean();
+    
+    // Find application if it exists
+    const application = await mongoose.model('Application').findOne({ enquiryId: enquiry._id }).select('_id studentId').lean() as any;
+
+    const formatted = {
+      id: enquiry._id.toString(),
+      ...enquiry,
+      program: program ? { id: program._id.toString(), ...program } : null,
+      campus: campus ? { id: campus._id.toString(), ...campus } : null,
+      followUps: followUps.map((f: any) => ({ id: f._id.toString(), ...f })),
+      statusHistories: statusHistories.map((h: any) => ({ id: h._id.toString(), ...h })),
+      application: application ? { id: application._id.toString(), studentId: application.studentId?.toString() } : null
+    };
+
     return res.status(200).json({
       success: true,
-      data: enquiry,
+      data: formatted,
     });
   } catch (error: any) {
     console.error('Error fetching enquiry details:', error);
@@ -352,9 +357,16 @@ router.get('/:id', handleEnquiryDetail);
 // 5. PATCH /api/enquiries/:id/status - Body status transition updates
 router.patch('/:id/status', async (req: Request, res: Response) => {
   try {
-    const id = Number(req.params.id);
+    const { id } = req.params;
     const { status, note } = req.body;
     const validStatuses = ['new', 'contacted', 'applied', 'admitted', 'closed'];
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid Enquiry ID.'
+      });
+    }
 
     if (!status || !validStatuses.includes(status.toLowerCase())) {
       return res.status(400).json({
@@ -363,7 +375,7 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
       });
     }
 
-    const enquiry = await prisma.enquiry.findUnique({ where: { id } });
+    const enquiry = await Enquiry.findById(id);
     if (!enquiry) {
       return res.status(404).json({
         success: false,
@@ -386,27 +398,25 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
       });
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
-      const updatedEnquiry = await tx.enquiry.update({
-        where: { id },
-        data: { status: targetStatus }
-      });
+    const oldStatus = enquiry.status;
+    enquiry.status = targetStatus;
+    await enquiry.save();
 
-      await tx.statusHistory.create({
-        data: {
-          enquiryId: id,
-          fromStatus: enquiry.status,
-          toStatus: targetStatus,
-          note: note || 'Workflow status update'
-        }
-      });
-
-      return updatedEnquiry;
+    await StatusHistory.create({
+      enquiryId: enquiry._id,
+      fromStatus: oldStatus,
+      toStatus: targetStatus,
+      note: note || 'Workflow status update'
     });
+
+    const formatted = {
+      id: enquiry._id.toString(),
+      ...enquiry.toObject()
+    };
 
     return res.status(200).json({
       success: true,
-      data: updated
+      data: formatted
     });
   } catch (error: any) {
     console.error('Error updating status:', error);
@@ -421,10 +431,17 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
 // 6. POST /api/enquiries/:id/followup - Add followup task record
 router.post('/:id/followup', async (req: Request, res: Response) => {
   try {
-    const id = Number(req.params.id);
+    const { id } = req.params;
     const { note, type } = req.body;
 
-    const enquiry = await prisma.enquiry.findUnique({ where: { id } });
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid Enquiry ID.'
+      });
+    }
+
+    const enquiry = await Enquiry.findById(id).lean();
     if (!enquiry) {
       return res.status(404).json({
         success: false,
@@ -432,17 +449,20 @@ router.post('/:id/followup', async (req: Request, res: Response) => {
       });
     }
 
-    const followup = await prisma.followUp.create({
-      data: {
-        enquiryId: id,
-        note: note || '',
-        type: type || 'task'
-      }
+    const followup = await FollowUp.create({
+      enquiryId: new mongoose.Types.ObjectId(id),
+      note: note || '',
+      type: type || 'task'
     });
+
+    const formatted = {
+      id: followup._id.toString(),
+      ...followup.toObject()
+    };
 
     return res.status(201).json({
       success: true,
-      data: followup
+      data: formatted
     });
   } catch (error: any) {
     console.error('Error creating followup:', error);
@@ -460,6 +480,13 @@ router.patch('/followup/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
     const { status } = req.body;
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid Follow-up ID.'
+      });
+    }
+
     if (!status || !['pending', 'completed'].includes(status)) {
       return res.status(400).json({
         success: false,
@@ -467,14 +494,27 @@ router.patch('/followup/:id', async (req: Request, res: Response) => {
       });
     }
 
-    const followUp = await prisma.followUp.update({
-      where: { id: Number(id) },
-      data: { status },
-    });
+    const followUp = await FollowUp.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true }
+    );
+
+    if (!followUp) {
+      return res.status(404).json({
+        success: false,
+        message: 'Follow-up not found.'
+      });
+    }
+
+    const formatted = {
+      id: followUp._id.toString(),
+      ...followUp.toObject()
+    };
 
     return res.status(200).json({
       success: true,
-      data: followUp,
+      data: formatted,
     });
   } catch (error: any) {
     console.error('Error updating follow-up:', error);
@@ -490,7 +530,14 @@ router.post('/:id/process', async (req: Request, res: Response) => {
     const { id } = req.params;
     const { note } = req.body;
 
-    const enquiry = await prisma.enquiry.findUnique({ where: { id: Number(id) } });
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid Enquiry ID.'
+      });
+    }
+
+    const enquiry = await Enquiry.findById(id);
     if (!enquiry) {
       return res.status(404).json({
         success: false,
@@ -509,28 +556,25 @@ router.post('/:id/process', async (req: Request, res: Response) => {
       });
     }
 
-    const updatedEnquiry = await prisma.$transaction(async (tx) => {
-      const updated = await tx.enquiry.update({
-        where: { id: enquiry.id },
-        data: { status: nextStatus },
-      });
+    enquiry.status = nextStatus;
+    await enquiry.save();
 
-      await tx.statusHistory.create({
-        data: {
-          enquiryId: enquiry.id,
-          fromStatus: currentStatus,
-          toStatus: nextStatus,
-          note: note || 'Workflow status progression',
-        },
-      });
-
-      return updated;
+    await StatusHistory.create({
+      enquiryId: enquiry._id,
+      fromStatus: currentStatus,
+      toStatus: nextStatus,
+      note: note || 'Workflow status progression',
     });
+
+    const formatted = {
+      id: enquiry._id.toString(),
+      ...enquiry.toObject()
+    };
 
     return res.status(200).json({
       success: true,
       message: 'Enquiry status progressed successfully.',
-      data: updatedEnquiry,
+      data: formatted,
     });
   } catch (error: any) {
     console.error('Error processing status transition:', error);
@@ -544,14 +588,25 @@ router.post('/:id/process', async (req: Request, res: Response) => {
 router.get('/:id/history', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const history = await prisma.statusHistory.findMany({
-      where: { enquiryId: Number(id) },
-      orderBy: { changedAt: 'asc' },
-    });
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid Enquiry ID.'
+      });
+    }
+
+    const history = await StatusHistory.find({ enquiryId: new mongoose.Types.ObjectId(id) })
+      .sort({ changedAt: 1 })
+      .lean();
+
+    const formatted = history.map((h: any) => ({
+      id: h._id.toString(),
+      ...h
+    }));
 
     return res.status(200).json({
       success: true,
-      data: history,
+      data: formatted,
     });
   } catch (error: any) {
     console.error('Error fetching history:', error);

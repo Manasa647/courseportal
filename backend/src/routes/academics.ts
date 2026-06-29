@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import prisma from '../config/db';
+import mongoose from 'mongoose';
+import { Student, Course, AttendanceRecord, Mark, Result } from '../models/models';
 import { calculateFinalGrade } from '../utils/gradeCalculator';
 
 const router = Router();
@@ -8,17 +9,17 @@ const router = Router();
 // ATTENDANCE ENDPOINTS
 // ==========================================
 
-// POST /mark (Mark attendance and prevent duplicates using upsert)
+// POST /mark (Mark attendance)
 router.post('/mark', async (req: Request, res: Response) => {
   try {
     const { studentId, courseId, date, status } = req.body;
     const errors: string[] = [];
 
-    if (!studentId || isNaN(Number(studentId))) {
-      errors.push('studentId is required and must be an integer.');
+    if (!studentId || !mongoose.Types.ObjectId.isValid(studentId)) {
+      errors.push('studentId is required and must be a valid ObjectId.');
     }
-    if (!courseId || isNaN(Number(courseId))) {
-      errors.push('courseId is required and must be an integer.');
+    if (!courseId || !mongoose.Types.ObjectId.isValid(courseId)) {
+      errors.push('courseId is required and must be a valid ObjectId.');
     }
     if (!status || !['present', 'absent', 'late', 'excused'].includes(status)) {
       errors.push("status is required and must be one of: 'present', 'absent', 'late', 'excused'.");
@@ -35,29 +36,24 @@ router.post('/mark', async (req: Request, res: Response) => {
       });
     }
 
-    // Normalize date to midnight (00:00:00) to ensure unique constraint matches consistently
     const formattedDate = date ? new Date(date) : new Date();
     formattedDate.setHours(0, 0, 0, 0);
 
     // Verify student and course exist
-    const student = await prisma.student.findUnique({ where: { id: Number(studentId) } });
+    const student = await Student.findById(studentId).lean();
     if (!student) {
       return res.status(404).json({ success: false, message: 'Student not found.' });
     }
-    const course = await prisma.course.findUnique({ where: { id: Number(courseId) } });
+    const course = await Course.findById(courseId).lean();
     if (!course) {
       return res.status(404).json({ success: false, message: 'Course not found.' });
     }
 
     // Check if record exists
-    const existing = await prisma.attendanceRecord.findUnique({
-      where: {
-        studentId_courseId_date: {
-          studentId: Number(studentId),
-          courseId: Number(courseId),
-          date: formattedDate,
-        },
-      },
+    const existing = await AttendanceRecord.findOne({
+      studentId: new mongoose.Types.ObjectId(studentId),
+      courseId: new mongoose.Types.ObjectId(courseId),
+      date: formattedDate,
     });
 
     if (existing) {
@@ -67,19 +63,22 @@ router.post('/mark', async (req: Request, res: Response) => {
       });
     }
 
-    const attendance = await prisma.attendanceRecord.create({
-      data: {
-        studentId: Number(studentId),
-        courseId: Number(courseId),
-        date: formattedDate,
-        status,
-      },
+    const attendance = await AttendanceRecord.create({
+      studentId: new mongoose.Types.ObjectId(studentId),
+      courseId: new mongoose.Types.ObjectId(courseId),
+      date: formattedDate,
+      status,
     });
+
+    const formatted = {
+      id: attendance._id.toString(),
+      ...attendance.toObject()
+    };
 
     return res.status(201).json({
       success: true,
       message: 'Attendance record registered successfully.',
-      data: attendance,
+      data: formatted,
     });
   } catch (error: any) {
     console.error('Error marking attendance:', error);
@@ -96,19 +95,17 @@ router.get('/summary', async (req: Request, res: Response) => {
   try {
     const { studentId, courseId } = req.query;
 
-    if (!studentId || isNaN(Number(studentId))) {
-      return res.status(400).json({ success: false, message: 'Numeric studentId is required.' });
+    if (!studentId || !mongoose.Types.ObjectId.isValid(studentId as string)) {
+      return res.status(400).json({ success: false, message: 'Valid studentId is required.' });
     }
-    if (!courseId || isNaN(Number(courseId))) {
-      return res.status(400).json({ success: false, message: 'Numeric courseId is required.' });
+    if (!courseId || !mongoose.Types.ObjectId.isValid(courseId as string)) {
+      return res.status(400).json({ success: false, message: 'Valid courseId is required.' });
     }
 
-    const records = await prisma.attendanceRecord.findMany({
-      where: {
-        studentId: Number(studentId),
-        courseId: Number(courseId),
-      },
-    });
+    const records = await AttendanceRecord.find({
+      studentId: new mongoose.Types.ObjectId(studentId as string),
+      courseId: new mongoose.Types.ObjectId(courseId as string),
+    }).lean();
 
     const present = records.filter((r) => r.status === 'present').length;
     const absent = records.filter((r) => r.status === 'absent').length;
@@ -153,11 +150,11 @@ router.post('/record', async (req: Request, res: Response) => {
     const { studentId, courseId, assessmentName, score, maxScore, weight } = req.body;
     const errors: string[] = [];
 
-    if (!studentId || isNaN(Number(studentId))) {
-      errors.push('studentId is required and must be an integer.');
+    if (!studentId || !mongoose.Types.ObjectId.isValid(studentId)) {
+      errors.push('studentId is required and must be a valid ObjectId.');
     }
-    if (!courseId || isNaN(Number(courseId))) {
-      errors.push('courseId is required and must be an integer.');
+    if (!courseId || !mongoose.Types.ObjectId.isValid(courseId)) {
+      errors.push('courseId is required and must be a valid ObjectId.');
     }
     if (!assessmentName || typeof assessmentName !== 'string' || assessmentName.trim() === '') {
       errors.push('assessmentName is required and must be a string.');
@@ -181,16 +178,15 @@ router.post('/record', async (req: Request, res: Response) => {
     }
 
     // Verify student and course
-    const student = await prisma.student.findUnique({ where: { id: Number(studentId) } });
+    const student = await Student.findById(studentId).lean();
     if (!student) {
       return res.status(404).json({ success: false, message: 'Student not found.' });
     }
-    const course = await prisma.course.findUnique({ where: { id: Number(courseId) } });
+    const course = await Course.findById(courseId).lean();
     if (!course) {
       return res.status(404).json({ success: false, message: 'Course not found.' });
     }
 
-    // Enforce score <= maxScore check
     if (Number(score) > Number(maxScore)) {
       return res.status(400).json({
         success: false,
@@ -199,21 +195,24 @@ router.post('/record', async (req: Request, res: Response) => {
       });
     }
 
-    const mark = await prisma.mark.create({
-      data: {
-        studentId: Number(studentId),
-        courseId: Number(courseId),
-        assessmentName,
-        score: Number(score),
-        maxScore: Number(maxScore),
-        weight: Number(weight),
-      },
+    const mark = await Mark.create({
+      studentId: new mongoose.Types.ObjectId(studentId),
+      courseId: new mongoose.Types.ObjectId(courseId),
+      assessmentName,
+      score: Number(score),
+      maxScore: Number(maxScore),
+      weight: Number(weight),
     });
+
+    const formatted = {
+      id: mark._id.toString(),
+      ...mark.toObject()
+    };
 
     return res.status(201).json({
       success: true,
       message: 'Mark recorded successfully.',
-      data: mark,
+      data: formatted,
     });
   } catch (error: any) {
     console.error('Error recording mark:', error);
@@ -230,29 +229,24 @@ router.get('/list', async (req: Request, res: Response) => {
   try {
     const { studentId, courseId } = req.query;
 
-    if (!studentId || isNaN(Number(studentId))) {
-      return res.status(400).json({ success: false, message: 'Numeric studentId is required.' });
+    if (!studentId || !mongoose.Types.ObjectId.isValid(studentId as string)) {
+      return res.status(400).json({ success: false, message: 'Valid studentId is required.' });
     }
-    if (!courseId || isNaN(Number(courseId))) {
-      return res.status(400).json({ success: false, message: 'Numeric courseId is required.' });
+    if (!courseId || !mongoose.Types.ObjectId.isValid(courseId as string)) {
+      return res.status(400).json({ success: false, message: 'Valid courseId is required.' });
     }
 
-    const marks = await prisma.mark.findMany({
-      where: {
-        studentId: Number(studentId),
-        courseId: Number(courseId),
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    const marks = await Mark.find({
+      studentId: new mongoose.Types.ObjectId(studentId as string),
+      courseId: new mongoose.Types.ObjectId(courseId as string),
+    }).sort({ createdAt: -1 }).lean();
 
-    const summary = calculateFinalGrade(marks);
+    const summary = calculateFinalGrade(marks as any);
 
     return res.status(200).json({
       success: true,
       data: {
-        marks,
+        marks: marks.map((m: any) => ({ id: m._id.toString(), ...m })),
         weightedAveragePercentage: summary.percentage,
         projectedGrade: summary.grade,
         projectedGpa: summary.gpa,
@@ -277,20 +271,18 @@ router.post('/compute', async (req: Request, res: Response) => {
   try {
     const { studentId, courseId } = req.body;
 
-    if (!studentId || isNaN(Number(studentId))) {
-      return res.status(400).json({ success: false, message: 'studentId is required and must be an integer.' });
+    if (!studentId || !mongoose.Types.ObjectId.isValid(studentId)) {
+      return res.status(400).json({ success: false, message: 'studentId is required and must be a valid ObjectId.' });
     }
-    if (!courseId || isNaN(Number(courseId))) {
-      return res.status(400).json({ success: false, message: 'courseId is required and must be an integer.' });
+    if (!courseId || !mongoose.Types.ObjectId.isValid(courseId)) {
+      return res.status(400).json({ success: false, message: 'courseId is required and must be a valid ObjectId.' });
     }
 
     // Fetch marks
-    const marks = await prisma.mark.findMany({
-      where: {
-        studentId: Number(studentId),
-        courseId: Number(courseId),
-      },
-    });
+    const marks = await Mark.find({
+      studentId: new mongoose.Types.ObjectId(studentId),
+      courseId: new mongoose.Types.ObjectId(courseId),
+    }).lean();
 
     if (marks.length === 0) {
       return res.status(400).json({
@@ -299,37 +291,31 @@ router.post('/compute', async (req: Request, res: Response) => {
       });
     }
 
-    // Run grading calculation logic
-    const calc = calculateFinalGrade(marks);
+    const calc = calculateFinalGrade(marks as any);
 
-    // Upsert Result record
-    const result = await prisma.result.upsert({
-      where: {
-        studentId_courseId: {
-          studentId: Number(studentId),
-          courseId: Number(courseId),
-        },
+    const result = await Result.findOneAndUpdate(
+      {
+        studentId: new mongoose.Types.ObjectId(studentId),
+        courseId: new mongoose.Types.ObjectId(courseId),
       },
-      update: {
+      {
         grade: calc.grade,
         gpa: calc.gpa,
         status: calc.status,
         remarks: `Auto-computed. Final score: ${calc.percentage}% (from ${marks.length} assessments).`,
       },
-      create: {
-        studentId: Number(studentId),
-        courseId: Number(courseId),
-        grade: calc.grade,
-        gpa: calc.gpa,
-        status: calc.status,
-        remarks: `Auto-computed. Final score: ${calc.percentage}% (from ${marks.length} assessments).`,
-      },
-    });
+      { upsert: true, new: true }
+    );
+
+    const formatted = {
+      id: result._id.toString(),
+      ...result.toObject()
+    };
 
     return res.status(200).json({
       success: true,
       message: 'Course final result computed and saved successfully.',
-      data: result,
+      data: formatted,
     });
   } catch (error: any) {
     console.error('Error computing course result:', error);
@@ -346,34 +332,26 @@ router.get('/transcript', async (req: Request, res: Response) => {
   try {
     const { studentId } = req.query;
 
-    if (!studentId || isNaN(Number(studentId))) {
+    if (!studentId || !mongoose.Types.ObjectId.isValid(studentId as string)) {
       return res.status(400).json({
         success: false,
-        message: 'A numeric studentId query parameter is required.',
+        message: 'A valid studentId query parameter is required.',
       });
     }
 
-    const results = await prisma.result.findMany({
-      where: {
-        studentId: Number(studentId),
-      },
-      include: {
-        course: {
-          select: {
-            code: true,
-            title: true,
-            credits: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: 'asc',
-      },
-    });
+    const results = await Result.find({
+      studentId: new mongoose.Types.ObjectId(studentId as string),
+    }).populate('courseId').sort({ createdAt: 1 }).lean();
+
+    const formattedResults = results.map((r: any) => ({
+      id: r._id.toString(),
+      ...r,
+      course: r.courseId ? { id: r.courseId._id.toString(), ...r.courseId } : null
+    }));
 
     // Calculate Cumulative GPA
-    const totalCredits = results.reduce((sum, r) => sum + r.course.credits, 0);
-    const weightedGpaSum = results.reduce((sum, r) => sum + r.gpa * r.course.credits, 0);
+    const totalCredits = formattedResults.reduce((sum, r) => sum + (r.course?.credits || 0), 0);
+    const weightedGpaSum = formattedResults.reduce((sum, r) => sum + r.gpa * (r.course?.credits || 0), 0);
     const cumulativeGpa = totalCredits > 0 
       ? Math.round((weightedGpaSum / totalCredits) * 100) / 100 
       : 0.0;
@@ -381,7 +359,7 @@ router.get('/transcript', async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       data: {
-        results,
+        results: formattedResults,
         cumulativeGpa,
         totalCreditsAttempted: totalCredits,
       },

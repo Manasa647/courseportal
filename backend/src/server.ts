@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import path from 'path';
 import dotenv from 'dotenv';
-import prisma from './config/db';
+import { connectDB } from './config/db';
 import enquiriesRouter from './routes/enquiries';
 import studentsRouter from './routes/students';
 import documentsRouter from './routes/documents';
@@ -89,5 +89,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
+
+connectDB();
 
 export { app, server };

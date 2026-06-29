@@ -588,20 +588,16 @@ export default function App() {
     setFormSuccess(null);
     setFormErrors([]);
     try {
-      let progId = formToUse.programId ? Number(formToUse.programId) : null;
-      if (progId && progId > 100) {
-        progId = progId - 100;
-      }
+      let progId = formToUse.programId || null;
       
-      let campId: number | null = null;
+      let campId = null;
       if (formToUse.campusId) {
-        const parsed = Number(formToUse.campusId);
-        if (!isNaN(parsed)) {
-          campId = parsed;
-        } else {
-          const matched = campuses.find(c => c.name.toLowerCase().includes(formToUse.campusId.toLowerCase()));
-          campId = matched ? matched.id : null;
-        }
+        const matched = campuses.find((c: any) => 
+          (c.name && c.name.toLowerCase().includes(formToUse.campusId.toLowerCase())) ||
+          (c.id && c.id === formToUse.campusId) ||
+          (c._id && c._id === formToUse.campusId)
+        );
+        campId = matched ? (matched.id || matched._id) : formToUse.campusId;
       }
 
       const payload = {

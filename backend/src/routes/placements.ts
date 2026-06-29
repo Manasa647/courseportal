@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import prisma from '../config/db';
+import mongoose from 'mongoose';
+import { PlacementDrive, Student, Application, Program } from '../models/models';
 import { WorkflowService } from '../services/workflowService';
 
 const router = Router();
@@ -9,36 +10,26 @@ router.get('/list', async (req: Request, res: Response) => {
   try {
     const { studentId } = req.query;
 
-    const rawDrives = await prisma.placementDrive.findMany({
-      orderBy: { driveDate: 'desc' }
-    });
+    const rawDrives = await PlacementDrive.find().sort({ driveDate: -1 }).lean();
 
-    const formattedDrives = rawDrives.map(d => ({
-      id: d.id,
+    const formattedDrives = rawDrives.map((d: any) => ({
+      id: d._id.toString(),
       title: d.title,
       company: d.company,
       location: d.location,
       driveDate: d.driveDate,
-      eligiblePrograms: d.eligiblePrograms.split(',').map(p => p.trim())
+      eligiblePrograms: d.eligiblePrograms ? d.eligiblePrograms.split(',').map((p: string) => p.trim()) : []
     }));
 
     if (studentId !== undefined && studentId !== '') {
-      if (isNaN(Number(studentId))) {
+      if (!mongoose.Types.ObjectId.isValid(studentId as string)) {
         return res.status(400).json({
           success: false,
-          message: 'studentId query parameter must be a valid number.',
+          message: 'studentId query parameter must be a valid ObjectId.',
         });
       }
 
-      const student = await prisma.student.findUnique({
-        where: { id: Number(studentId) },
-        include: {
-          application: {
-            include: { program: true }
-          }
-        }
-      });
-
+      const student = await Student.findById(studentId).lean();
       if (!student) {
         return res.status(404).json({
           success: false,
@@ -46,7 +37,9 @@ router.get('/list', async (req: Request, res: Response) => {
         });
       }
 
-      const programName = student.application?.program?.name;
+      const application = await Application.findOne({ studentId: student._id }).populate('programId').lean();
+      const programName = (application?.programId as any)?.name;
+
       if (!programName) {
         return res.status(200).json({
           success: true,
@@ -107,22 +100,24 @@ router.post('/create', async (req: Request, res: Response) => {
       ? eligiblePrograms.join(',')
       : eligiblePrograms;
 
-    const newDrive = await prisma.placementDrive.create({
-      data: {
-        title,
-        eligiblePrograms: formattedEligiblePrograms,
-        company,
-        location,
-        driveDate: driveDate ? new Date(driveDate) : new Date(),
-      },
+    const newDrive = await PlacementDrive.create({
+      title,
+      eligiblePrograms: formattedEligiblePrograms,
+      company,
+      location,
+      driveDate: driveDate ? new Date(driveDate) : new Date(),
     });
 
     return res.status(201).json({
       success: true,
       message: 'Placement drive created successfully.',
       data: {
-        ...newDrive,
-        eligiblePrograms: newDrive.eligiblePrograms.split(',').map(p => p.trim())
+        id: newDrive._id.toString(),
+        title: newDrive.title,
+        company: newDrive.company,
+        location: newDrive.location,
+        driveDate: newDrive.driveDate,
+        eligiblePrograms: newDrive.eligiblePrograms.split(',').map((p: string) => p.trim())
       },
     });
   } catch (error: any) {

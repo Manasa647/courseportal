@@ -2,7 +2,7 @@ interface WorkflowInput {
   name: string;
   email: string;
   backgroundNotes?: string;
-  programId?: number;
+  programId?: string;
 }
 
 export class WorkflowService {
@@ -37,7 +37,7 @@ export class WorkflowService {
   /**
    * Generate default list of follow-up tasks for an enquiry.
    */
-  static generateFollowUps(enquiryId: number) {
+  static generateFollowUps(enquiryId: string) {
     const now = new Date();
     
     return [
@@ -120,7 +120,7 @@ export class WorkflowService {
   /**
    * Match placement drives by checking if the student's program is listed in the drive's eligible programs.
    */
-  static matchPlacementDrives(studentProgram: string, drives: { id: number; title: string; eligiblePrograms: string[] }[]): { id: number; title: string; eligiblePrograms: string[] }[] {
+  static matchPlacementDrives(studentProgram: string, drives: { id: string; title: string; eligiblePrograms: string[] }[]): { id: string; title: string; eligiblePrograms: string[] }[] {
     const cleanProgram = studentProgram.trim().toLowerCase();
     return drives.filter(d => 
       d.eligiblePrograms.map(p => p.trim().toLowerCase()).includes(cleanProgram)

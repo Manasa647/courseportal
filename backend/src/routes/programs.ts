@@ -1,92 +1,6 @@
-/*
-Postman Request/Response Documentation:
-
-1. GET /api/programs
-Request: GET http://localhost:5000/api/programs?campusId=Rajahmundry&type=UG
-Response: 200 OK
-{
-  "success": true,
-  "data": [
-    {
-      "id": 101,
-      "name": "B.Tech CSE",
-      "department": "Engineering",
-      "type": "UG",
-      "category": "Engineering",
-      "duration": "4 Years",
-      "annualFee": 93000,
-      "devFee": 8000,
-      "totalSeats": 180,
-      "icon": "💻",
-      "minPercentage": 60,
-      "entranceExam": "EAPCET / JEE",
-      "eligibilityText": "10+2 / Intermediate with Maths & Physics",
-      "subjects": ["Programming in Python", "Data Structures & Algorithms"],
-      "campusIds": "1",
-      "createdAt": "2026-06-27T04:12:13.000Z"
-    }
-  ]
-}
-
-2. GET /api/programs/:id
-Request: GET http://localhost:5000/api/programs/101
-Response: 200 OK
-{
-  "success": true,
-  "data": {
-    "id": 101,
-    "name": "B.Tech CSE",
-    "department": "Engineering",
-    "type": "UG",
-    "category": "Engineering",
-    "duration": "4 Years",
-    "annualFee": 93000,
-    "devFee": 8000,
-    "totalSeats": 180,
-    "icon": "💻",
-    "minPercentage": 60,
-    "entranceExam": "EAPCET / JEE",
-    "eligibilityText": "10+2 / Intermediate with Maths & Physics",
-    "subjects": ["Programming in Python", "Data Structures & Algorithms"],
-    "campusIds": "1",
-    "createdAt": "2026-06-27T04:12:13.000Z"
-  }
-}
-
-3. GET /api/campuses
-Request: GET http://localhost:5000/api/campuses
-Response: 200 OK
-{
-  "success": true,
-  "data": [
-    {
-      "id": 1,
-      "name": "Rajahmundry Campus",
-      "location": "Rajahmundry",
-      "studentsCount": 2450,
-      "established": "1995",
-      "facilities": ["A/C Labs", "High-speed Wi-Fi"],
-      "createdAt": "2026-06-27T04:12:13.000Z"
-    }
-  ]
-}
-
-4. GET /api/programs/stats
-Request: GET http://localhost:5000/api/programs/stats
-Response: 200 OK
-{
-  "success": true,
-  "data": {
-    "totalPrograms": 18,
-    "totalSeats": 1240,
-    "totalCampuses": 4,
-    "placementRate": 94
-  }
-}
-*/
-
 import { Router, Request, Response } from 'express';
-import prisma from '../config/db';
+import mongoose from 'mongoose';
+import { Campus, Program } from '../models/models';
 
 const programRouter = Router();
 export const campusRouter = Router();
@@ -94,10 +8,11 @@ export const campusRouter = Router();
 // GET /api/campuses - All campuses with split facilities
 campusRouter.get('/', async (req: Request, res: Response) => {
   try {
-    const campuses = await prisma.campus.findMany();
-    const formatted = campuses.map(c => ({
+    const campuses = await Campus.find().lean();
+    const formatted = campuses.map((c: any) => ({
+      id: c._id.toString(),
       ...c,
-      facilities: c.facilities ? c.facilities.split(',').map(f => f.trim()) : []
+      facilities: c.facilities ? c.facilities.split(',').map((f: string) => f.trim()) : []
     }));
     return res.status(200).json({
       success: true,
@@ -116,10 +31,10 @@ campusRouter.get('/', async (req: Request, res: Response) => {
 // GET /api/programs/stats - Summary numbers
 programRouter.get('/stats', async (req: Request, res: Response) => {
   try {
-    const totalPrograms = await prisma.program.count();
-    const totalCampuses = await prisma.campus.count();
-    const programs = await prisma.program.findMany({ select: { totalSeats: true } });
-    const totalSeats = programs.reduce((sum, p) => sum + (p.totalSeats || 0), 0);
+    const totalPrograms = await Program.countDocuments();
+    const totalCampuses = await Campus.countDocuments();
+    const programs = await Program.find({}, 'totalSeats').lean();
+    const totalSeats = programs.reduce((sum: number, p: any) => sum + (p.totalSeats || 0), 0);
 
     return res.status(200).json({
       success: true,
@@ -151,35 +66,36 @@ programRouter.get('/', async (req: Request, res: Response) => {
     }
 
     if (category && typeof category === 'string' && category !== '') {
-      // Map category to capitalized word (e.g., sciences -> Sciences)
       where.category = category.charAt(0).toUpperCase() + category.slice(1).toLowerCase();
     }
 
     if (campusId && typeof campusId === 'string' && campusId !== '') {
-      // Resolve campus IDs matching name, location, or numeric id
-      const campuses = await prisma.campus.findMany({
-        where: {
-          OR: [
-            { name: { contains: campusId } },
-            { location: { contains: campusId } },
-            { id: isNaN(Number(campusId)) ? undefined : Number(campusId) }
-          ].filter(Boolean) as any
-        }
-      });
-      const campusIdsList = campuses.map(c => c.id);
+      const isObjectId = mongoose.Types.ObjectId.isValid(campusId);
+      const searchRegex = new RegExp(campusId, 'i');
+      
+      const campuses = await Campus.find({
+        $or: [
+          { name: searchRegex },
+          { location: searchRegex },
+          ...(isObjectId ? [{ _id: campusId }] : [])
+        ]
+      }).lean();
+
+      const campusIdsList = campuses.map((c: any) => c._id.toString());
       if (campusIdsList.length > 0) {
-        where.OR = campusIdsList.map(id => ({
-          campusIds: { contains: String(id) }
+        where.$or = campusIdsList.map(id => ({
+          campusIds: { $regex: id }
         }));
       } else {
         return res.status(200).json({ success: true, data: [] });
       }
     }
 
-    const programs = await prisma.program.findMany({ where });
-    const formatted = programs.map(p => ({
+    const programs = await Program.find(where).lean();
+    const formatted = programs.map((p: any) => ({
+      id: p._id.toString(),
       ...p,
-      subjects: p.subjects ? p.subjects.split(',').map(s => s.trim()) : []
+      subjects: p.subjects ? p.subjects.split(',').map((s: string) => s.trim()) : []
     }));
 
     return res.status(200).json({
@@ -199,19 +115,15 @@ programRouter.get('/', async (req: Request, res: Response) => {
 // GET /api/programs/:id - Details by ID
 programRouter.get('/:id', async (req: Request, res: Response) => {
   try {
-    const id = Number(req.params.id);
-    if (isNaN(id)) {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid program ID format.'
       });
     }
 
-    const program = await prisma.program.findUnique({
-      where: { id },
-      include: { campuses: true }
-    });
-
+    const program: any = await Program.findById(id).lean();
     if (!program) {
       return res.status(404).json({
         success: false,
@@ -219,9 +131,15 @@ programRouter.get('/:id', async (req: Request, res: Response) => {
       });
     }
 
+    // Resolve campuses
+    const campusIdsList = program.campusIds ? program.campusIds.split(',').filter(Boolean) : [];
+    const campuses = await Campus.find({ _id: { $in: campusIdsList } }).lean();
+
     const formatted = {
+      id: program._id.toString(),
       ...program,
-      subjects: program.subjects ? program.subjects.split(',').map(s => s.trim()) : []
+      campuses: campuses.map((c: any) => ({ id: c._id.toString(), ...c })),
+      subjects: program.subjects ? program.subjects.split(',').map((s: string) => s.trim()) : []
     };
 
     return res.status(200).json({
